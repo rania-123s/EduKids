@@ -64,120 +64,22 @@
                 <div class="mt-4 h-100">
                   <div class="chat-tab-list custom-scrollbar">
                     <ul class="nav flex-column nav-pills nav-pills-soft">
+                      {% for chatss in conversations %}
                       <li data-bs-dismiss="offcanvas">
                         <!-- Chat user tab item -->
-                        <a href="#chat-1" class="nav-link active text-start" id="chat-1-tab" data-bs-toggle="pill" role="tab">
+                        <a href="#chat-{{ chatss.id }}" class="nav-link{% if loop.first %} active{% endif %} text-start" id="chat-{{ chatss.id }}-tab" data-bs-toggle="pill" role="tab">
                           <div class="d-flex">
-                            <div class="flex-shrink-0 avatar avatar-story me-2 status-online">
-                              <img class="avatar-img rounded-circle" src="assets/images/avatar/10.jpg" alt="">
+                            <div class="flex-shrink-0 avatar{% if not chatss.isRead %} avatar-story{% endif %} me-2{% if chatss.isRead %} status-online{% else %} status-offline{% endif %}">
+                              <img class="avatar-img rounded-circle" src="{{ asset('assets/images/avatar/placeholder.jpg') }}" alt="">
                             </div>
                             <div class="flex-grow-1 d-block">
-                              <h6 class="mb-0 mt-1">Frances Guerrero</h6>
-                              <div class="small text-secondary">Frances sent a photo.</div>
+                              <h6 class="mb-0 mt-1">Chat #{{ chatss.id }}</h6>
+                              <div class="small text-secondary">{{ chatss.dernierMessage ?: 'No messages yet' }}</div>
                             </div>
                           </div>
                         </a>
                       </li>
-                      <!-- Chat user tab item -->
-                      <li data-bs-dismiss="offcanvas">
-                        <a href="#chat-2" class="nav-link text-start" id="chat-2-tab" data-bs-toggle="pill" role="tab">
-                          <div class="d-flex">
-                            <div class="flex-shrink-0 avatar me-2 status-offline">
-                              <img class="avatar-img rounded-circle" src="assets/images/avatar/11.jpg" alt="">
-                            </div>
-                            <div class="flex-grow-1 d-block">
-                              <h6 class="mb-0 mt-1">Carolyn Ortiz</h6>
-                              <div class="small text-secondary">You missed a call form🤙</div>
-                            </div>
-                          </div>
-                        </a>
-                      </li>
-                      <!-- Chat user tab item -->
-                      <li data-bs-dismiss="offcanvas">
-                        <a href="#chat-3" class="nav-link text-start" id="chat-3-tab" data-bs-toggle="pill" role="tab">
-                          <div class="d-flex">
-                            <div class="flex-shrink-0 avatar avatar-story me-2">
-                              <img class="avatar-img rounded-circle" src="assets/images/avatar/12.jpg" alt="">
-                            </div>
-                            <div class="flex-grow-1 d-block">
-                              <h6 class="mb-0 mt-1">Billy Vasquez</h6>
-                              <div class="small text-secondary">Day sweetness 😊</div>
-                            </div>
-                          </div>
-                        </a>
-                      </li>
-                      <!-- Chat user tab item -->
-                      <li data-bs-dismiss="offcanvas">
-                        <a href="#chat-4" class="nav-link text-start" id="chat-4-tab" data-bs-toggle="pill" role="tab">
-                          <div class="d-flex">
-                            <div class="flex-shrink-0 avatar me-2">
-                              <ul class="avatar-group avatar-group-two">
-                                <li class="avatar avatar-xs">
-                                  <img class="avatar-img rounded-circle" src="assets/images/avatar/01.jpg" alt="avatar">
-                                </li>
-                                <li class="avatar avatar-xs">
-                                  <img class="avatar-img rounded-circle" src="assets/images/avatar/02.jpg" alt="avatar">
-                                </li>
-                              </ul>
-                            </div>
-                            <div class="flex-grow-1 d-block">
-                              <h6 class="mb-0 mt-1">Dennis, Ortiz</h6>
-                              <div class="small text-secondary">Ortiz: I'm adding jhon</div>
-                            </div>
-                          </div>
-                        </a>
-                      </li>
-                      <!-- Chat user tab item -->
-                      <li data-bs-dismiss="offcanvas">
-                        <a href="#chat-5" class="nav-link text-start" id="chat-5-tab" data-bs-toggle="pill" role="tab">
-                          <div class="d-flex">
-                            <div class="flex-shrink-0 avatar me-2">
-                              <ul class="avatar-group avatar-group-three">
-                                <li class="avatar avatar-xs">
-                                  <img class="avatar-img rounded-circle" src="assets/images/avatar/03.jpg" alt="avatar">
-                                </li>
-                                <li class="avatar avatar-xs">
-                                  <img class="avatar-img rounded-circle" src="assets/images/avatar/04.jpg" alt="avatar">
-                                </li>
-                                <li class="avatar avatar-xs">
-                                  <img class="avatar-img rounded-circle" src="assets/images/avatar/05.jpg" alt="avatar">
-                                </li>
-                              </ul>
-                            </div>
-                            <div class="flex-grow-1 d-block">
-                              <h6 class="mb-0 mt-1">Knight, Billy, Bryan</h6>
-                              <div class="small text-secondary">Billy: Thank you!</div>
-                            </div>
-                          </div>
-                        </a>
-                      </li>
-                      <!-- Chat user tab item -->
-                      <li data-bs-dismiss="offcanvas">
-                        <a href="#chat-6" class="nav-link text-start" id="chat-6-tab" data-bs-toggle="pill" role="tab">
-                          <div class="d-flex">
-                            <div class="flex-shrink-0 avatar me-2">
-                              <ul class="avatar-group avatar-group-four">
-                                <li class="avatar avatar-xxs">
-                                  <img class="avatar-img rounded-circle" src="assets/images/avatar/06.jpg" alt="avatar">
-                                </li>
-                                <li class="avatar avatar-xxs">
-                                  <img class="avatar-img rounded-circle" src="assets/images/avatar/07.jpg" alt="avatar">
-                                </li>
-                                <li class="avatar avatar-xxs">
-                                  <img class="avatar-img rounded-circle" src="assets/images/avatar/08.jpg" alt="avatar">
-                                </li>
-                                <li class="avatar avatar-xxs">
-                                  <img class="avatar-img rounded-circle" src="assets/images/avatar/placeholder.jpg" alt="avatar">
-                                </li>
-                              </ul>
-                            </div>
-                            <div class="flex-grow-1 d-block overflow-hidden">
-                              <h6 class="mb-0 mt-1 text-truncate w-75">Webestica crew </h6>
-                              <div class="small text-secondary">You: Okay thanks, everyone.</div>
-                            </div>
-                          </div>
-                        </a>
-                      </li>
+                      {% endfor %}
                     </ul>
                   </div>
                 </div>
@@ -230,147 +132,7 @@
                 <hr>
                 <!-- Chat conversation START -->
                 <div class="chat-conversation-content custom-scrollbar">
-                  <!-- Chat time -->
-                  <div class="text-center small my-2">Jul 16, 2022, 06:15 am</div>
-                  <!-- Chat message left -->
-                  <div class="d-flex mb-1">
-                    <div class="flex-shrink-0 avatar avatar-xs me-2">
-                      <img class="avatar-img rounded-circle" src="assets/images/avatar/10.jpg" alt="">
-                    </div>
-                    <div class="flex-grow-1">
-                      <div class="w-100">
-                        <div class="d-flex flex-column align-items-start">
-                          <div class="bg-light text-secondary p-2 px-3 rounded-2">Applauded no discovery in newspaper allowance am northward😊</div>
-                          <div class="small my-2">6:15 AM</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- Chat message right -->
-                  <div class="d-flex justify-content-end text-end mb-1">
-                    <div class="w-100">
-                      <div class="d-flex flex-column align-items-end">
-                        <div class="bg-primary text-white p-2 px-3 rounded-2">With pleasure</div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- Chat message right -->
-                  <div class="d-flex justify-content-end text-end mb-1">
-                    <div class="w-100">
-                      <div class="d-flex flex-column align-items-end">
-                        <div class="bg-primary text-white p-2 px-3 rounded-2">No visited raising gravity outward subject my cottage Mr be.</div>
-                        <div class="d-flex my-2">
-                          <div class="small text-secondary">6:20 AM</div>
-                          <div class="small ms-2"><i class="fa-solid fa-check-double text-info"></i></div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- Chat message left -->
-                  <div class="d-flex mb-1">
-                    <div class="flex-shrink-0 avatar avatar-xs me-2">
-                      <img class="avatar-img rounded-circle" src="assets/images/avatar/10.jpg" alt="">
-                    </div>
-                    <div class="flex-grow-1">
-                      <div class="w-100">
-                        <div class="d-flex flex-column align-items-start">
-                          <div class="bg-light text-secondary p-2 px-3 rounded-2">Please find the attached updated files</div>
-                          <!-- Files START -->
-                          <!-- Files END -->
-                          <div class="small my-2">12:16 PM</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- Chat message left -->
-                  <div class="d-flex mb-1">
-                    <div class="flex-shrink-0 avatar avatar-xs me-2">
-                      <img class="avatar-img rounded-circle" src="assets/images/avatar/10.jpg" alt="">
-                    </div>
-                    <div class="flex-grow-1">
-                      <div class="w-100">
-                        <div class="d-flex flex-column align-items-start">
-                          <div class="bg-light text-secondary p-2 px-3 rounded-2">How promotion excellent curiosity yet attempted happiness Gay prosperous impression😮</div>
-                          <div class="small my-2">3:22 PM</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- Chat message left -->
-                  <div class="d-flex mb-1">
-                    <div class="flex-shrink-0 avatar avatar-xs me-2">
-                      <img class="avatar-img rounded-circle" src="assets/images/avatar/10.jpg" alt="">
-                    </div>
-                    <div class="flex-grow-1">
-                      <div class="w-100">
-                        <div class="d-flex flex-column align-items-start">
-                          <div class="bg-light text-secondary p-2 px-3 rounded-2">
-                            <p class="small mb-0">Congratulations</p>
-                            <div class="card shadow-none p-2 border border-2 rounded mt-2">
-                              <img src="assets/images/elements/14.html" alt="">
-                            </div>
-                          </div>
-                          <div class="small my-2">3:22 PM</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- Chat message right -->
-                  <div class="d-flex justify-content-end text-end mb-1">
-                    <div class="w-100">
-                      <div class="d-flex flex-column align-items-end">
-                        <div class="bg-primary text-white p-2 px-3 rounded-2">And sir dare view but over man So at within mr to simple assure Mr disposing.</div>
-                        <!-- Images -->
-                        <div class="d-flex my-2">
-                          <div class="small text-secondary">5:35 PM</div>
-                          <div class="small ms-2"><i class="fa-solid fa-check"></i></div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- Chat message right -->
-                  <div class="d-flex justify-content-end text-end mb-1">
-                    <div class="w-100">
-                      <div class="d-flex flex-column align-items-end">
-                        <img class="rounded h-200px" src="assets/images/avatar/05.jpg" alt="">
-                        <div class="small my-2">5:36 PM</div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- Chat time -->
-                  <div class="text-center small my-2">2 New Messages</div>
-                  <!-- Chat message left -->
-                  <div class="d-flex mb-2">
-                    <div class="flex-shrink-0 avatar avatar-xs me-2">
-                      <img class="avatar-img rounded-circle" src="assets/images/avatar/10.jpg" alt="">
-                    </div>
-                    <div class="flex-grow-1">
-                      <div class="w-100">
-                        <div class="d-flex flex-column align-items-start">
-                          <div class="bg-light text-secondary p-2 px-3 rounded-2">Traveling alteration impression 🤐 six all uncommonly Chamber hearing inhabit joy highest private.</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <!-- Chat message left -->
-                  <div class="d-flex mb-1">
-                    <div class="flex-shrink-0 avatar avatar-xs me-2">
-                      <img class="avatar-img rounded-circle" src="assets/images/avatar/10.jpg" alt="">
-                    </div>
-                    <div class="flex-grow-1">
-                      <div class="w-100">
-                        <div class="d-flex flex-column align-items-start">
-                          <div class="bg-light text-secondary p-3 rounded-2">
-                            <div class="typing d-flex align-items-center">
-                              <div class="dot"></div>
-                              <div class="dot"></div>
-                              <div class="dot"></div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <!-- Messages will be loaded dynamically here -->
                 </div>
                 <!-- Chat conversation END -->
               </div>
@@ -1035,11 +797,11 @@
           </div>
           <div class="card-footer">
             <div class="d-sm-flex align-items-end">
-              <textarea class="form-control mb-sm-0 mb-3" data-autoresize placeholder="Type a message" rows="1"></textarea>
+              <textarea class="form-control mb-sm-0 mb-3" data-autoresize placeholder="Type a message" rows="1" id="messageInput"></textarea>
               <input type="file" id="file-upload" style="display: none;" />
-              <button class="btn btn-sm btn-danger-soft ms-sm-2"><i class="fa-solid fa-face-smile fs-6"></i></button>
-              <button class="btn btn-sm btn-secondary-soft ms-2" onclick="document.getElementById('file-upload').click();"><i class="fa-solid fa-upload fs-6"></i></button>
-              <button class="btn btn-sm btn-primary ms-2"><i class="fa-solid fa-paper-plane fs-6"></i></button>
+              <button type="button" class="btn btn-sm btn-danger-soft ms-sm-2" id="emojiBtn"><i class="fa-solid fa-face-smile fs-6"></i></button>
+              <button type="button" class="btn btn-sm btn-secondary-soft ms-2" onclick="document.getElementById('file-upload').click();"><i class="fa-solid fa-upload fs-6"></i></button>
+              <button type="button" class="btn btn-sm btn-primary ms-2" id="sendButton"><i class="fa-solid fa-paper-plane fs-6"></i></button>
             </div>
           </div>
         </div>
@@ -1081,7 +843,7 @@
       <!-- Button  -->
       <div class="d-sm-flex align-items-end">
         <textarea class="form-control mb-sm-0 mb-3" placeholder="Type a message" rows="1" spellcheck="false"></textarea>
-        <button class="btn btn-sm btn-danger-soft ms-sm-2"><i class="fa-solid fa-face-smile fs-6"></i></button>
+       <button id="emojiBtn" class="btn btn-sm btn-danger-soft ms-sm-2"><i class="fa-solid fa-face-smile fs-6"></i></button>
         <button class="btn btn-sm btn-secondary-soft ms-2"><i class="fa-solid fa-upload fs-6"></i></button>
         <button class="btn btn-sm btn-primary ms-2"><i class="fa-solid fa-paper-plane fs-6"></i></button>
       </div>

@@ -108,4 +108,28 @@ final class MsgController extends AbstractController
 
         return new JsonResponse(['status' => 'Message marked as read']);
     }
+
+    // API endpoint to get messages for a specific chat
+    #[Route('/msg/chat/{id}/messages', name: 'msg_chat_messages', methods: ['GET'])]
+    public function getChatMessages(Chat $chat): JsonResponse
+    {
+        $messages = $chat->getMessages()->toArray();
+
+        // Order by date_envoi ASC
+        usort($messages, function ($a, $b) {
+            return $a->getDateEnvoi() <=> $b->getDateEnvoi();
+        });
+
+        $result = array_map(function ($msg) {
+            return [
+                'id' => $msg->getId(),
+                'sender_id' => $msg->getExpediteurId(),
+                'content' => $msg->getContenu(),
+                'date' => $msg->getDateEnvoi()->format('Y-m-d H:i:s'),
+                'read' => $msg->isLu(),
+            ];
+        }, $messages);
+
+        return new JsonResponse($result);
+    }
 }

@@ -1,4 +1,4 @@
-// function_chat.js
+
 
 document.addEventListener('DOMContentLoaded', function() {
   // Handle dropdown toggle for all chat conversation dropdowns
@@ -25,6 +25,50 @@ document.addEventListener('DOMContentLoaded', function() {
       });
     }
   });
+
+  // Function to load chat messages
+  function loadChat(element, chatId) {
+    // Prevent default link behavior
+    event.preventDefault();
+
+    // Update URL without reload
+    history.pushState(null, '', '/chat/' + chatId);
+
+    // Remove active class from all chat links
+    document.querySelectorAll('.chat-link').forEach(link => link.classList.remove('active'));
+
+    // Add active class to clicked link
+    element.classList.add('active');
+
+    // Fetch messages via AJAX
+    fetch('/chat/' + chatId + '/messages')
+      .then(response => response.json())
+      .then(messages => renderMessages(messages))
+      .catch(error => console.error('Error loading messages:', error));
+  }
+
+  // Function to render messages in the DOM
+  function renderMessages(messages) {
+    const container = document.getElementById('chat-messages');
+    container.innerHTML = ''; // Clear existing messages
+    messages.forEach(message => {
+      const messageDiv = document.createElement('div');
+      messageDiv.classList.add('message');
+      messageDiv.innerHTML = `
+        <strong>Sender ${message.sender_id}:</strong> ${message.content}
+        <small class="text-muted">(${message.date})</small>
+      `;
+      container.appendChild(messageDiv);
+    });
+  }
+
+  // Check URL on page load and load chat if present
+  const pathParts = window.location.pathname.split('/');
+  const chatIndex = pathParts.indexOf('chat');
+  if (chatIndex !== -1 && pathParts[chatIndex + 1]) {
+    const chatId = pathParts[chatIndex + 1];
+    loadChat(null, chatId); // No element to highlight on load
+  }
 
   // Handle file upload
   const fileInput = document.getElementById('file-upload');

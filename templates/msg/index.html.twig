@@ -1,0 +1,145 @@
+{% extends 'base_frontoffice.html.twig' %}
+
+{% block title %}Gestion des Messages{% endblock %}
+
+{% block body %}
+<h1>Gestion des Messages</h1>
+
+<div class="message-management" style="margin: 20px 0;">
+    <h2>Actions disponibles</h2>
+
+    <div class="actions-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin: 20px 0;">
+        <div class="action-card" style="border: 1px solid #ccc; padding: 20px; border-radius: 5px;">
+            <h3>Créer une nouvelle conversation</h3>
+            <p>Commencez une nouvelle conversation dans le chat principal.</p>
+            <button onclick="createConversation()" style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer;">Créer une conversation</button>
+        </div>
+
+        <div class="action-card" style="border: 1px solid #ccc; padding: 20px; border-radius: 5px;">
+            <h3>Envoyer un message</h3>
+            <p>Envoyez un message dans une conversation existante.</p>
+            <form onsubmit="sendMessage(event)" style="display: flex; flex-direction: column; gap: 10px;">
+                <input type="number" id="send-chat-id" placeholder="ID de la conversation" required style="padding: 8px;">
+                <input type="number" id="send-user-id" placeholder="ID de l'utilisateur" required style="padding: 8px;">
+                <input type="text" id="send-content" placeholder="Contenu du message" required style="padding: 8px;">
+                <button type="submit" style="padding: 10px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">Envoyer</button>
+            </form>
+        </div>
+
+        <div class="action-card" style="border: 1px solid #ccc; padding: 20px; border-radius: 5px;">
+            <h3>Marquer comme lu</h3>
+            <p>Marquez un message comme lu.</p>
+            <form onsubmit="markAsRead(event)" style="display: flex; flex-direction: column; gap: 10px;">
+                <input type="number" id="read-message-id" placeholder="ID du message" required style="padding: 8px;">
+                <button type="submit" style="padding: 10px; background: #ffc107; color: black; border: none; border-radius: 5px; cursor: pointer;">Marquer comme lu</button>
+            </form>
+        </div>
+
+        <div class="action-card" style="border: 1px solid #ccc; padding: 20px; border-radius: 5px;">
+            <h3>Voir les messages d'un utilisateur</h3>
+            <p>Affichez tous les messages d'un utilisateur spécifique.</p>
+            <form onsubmit="getUserMessages(event)" style="display: flex; flex-direction: column; gap: 10px;">
+                <input type="number" id="user-id" placeholder="ID de l'utilisateur" required style="padding: 8px;">
+                <button type="submit" style="padding: 10px; background: #17a2b8; color: white; border: none; border-radius: 5px; cursor: pointer;">Voir les messages</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div id="results" style="margin-top: 30px; padding: 20px; border: 1px solid #ccc; border-radius: 5px; background: #f8f9fa; display: none;">
+    <h3>Résultats</h3>
+    <pre id="results-content"></pre>
+</div>
+
+<div style="margin-top: 20px;">
+    <a href="{{ path('chat_index') }}" class="btn btn-secondary">Retour au chat</a>
+</div>
+
+<script>
+function createConversation() {
+    fetch('/msg/conversation', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('results').style.display = 'block';
+        document.getElementById('results-content').textContent = JSON.stringify(data, null, 2);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        document.getElementById('results').style.display = 'block';
+        document.getElementById('results-content').textContent = 'Erreur: ' + error.message;
+    });
+}
+
+function sendMessage(event) {
+    event.preventDefault();
+    const chatId = document.getElementById('send-chat-id').value;
+    const userId = document.getElementById('send-user-id').value;
+    const content = document.getElementById('send-content').value;
+
+    fetch('/msg/send', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            chat_id: parseInt(chatId),
+            sender_id: parseInt(userId),
+            content: content
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('results').style.display = 'block';
+        document.getElementById('results-content').textContent = JSON.stringify(data, null, 2);
+        document.getElementById('send-content').value = '';
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        document.getElementById('results').style.display = 'block';
+        document.getElementById('results-content').textContent = 'Erreur: ' + error.message;
+    });
+}
+
+function markAsRead(event) {
+    event.preventDefault();
+    const messageId = document.getElementById('read-message-id').value;
+
+    fetch(`/msg/read/${messageId}`, {
+        method: 'PUT'
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('results').style.display = 'block';
+        document.getElementById('results-content').textContent = JSON.stringify(data, null, 2);
+        document.getElementById('read-message-id').value = '';
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        document.getElementById('results').style.display = 'block';
+        document.getElementById('results-content').textContent = 'Erreur: ' + error.message;
+    });
+}
+
+function getUserMessages(event) {
+    event.preventDefault();
+    const userId = document.getElementById('user-id').value;
+
+    fetch(`/msg/user/${userId}`)
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('results').style.display = 'block';
+        document.getElementById('results-content').textContent = JSON.stringify(data, null, 2);
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        document.getElementById('results').style.display = 'block';
+        document.getElementById('results-content').textContent = 'Erreur: ' + error.message;
+    });
+}
+</script>
+{% endblock %}

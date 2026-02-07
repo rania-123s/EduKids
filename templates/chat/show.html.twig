@@ -1,0 +1,47 @@
+{% extends 'base_frontoffice.html.twig' %}
+
+{% block title %}Conversation #{{ chat.id }}{% endblock %}
+
+{% block body %}
+    <h1>Conversation #{{ chat.id }}</h1>
+
+    <div class="conversation-info" style="background: #f8f9fa; padding: 15px; margin: 20px 0; border-radius: 5px;">
+        <p><strong>ID de la conversation:</strong> {{ chat.id }}</p>
+        <p><strong>Date de création:</strong> {{ chat.dateCreation ? chat.dateCreation|date('d/m/Y H:i') : 'N/A' }}</p>
+        <p><strong>Dernier message:</strong> {{ chat.dernierMessage ?: 'Aucun message' }}</p>
+        <p><strong>Dernière activité:</strong> {{ chat.dateDernierMessage ? chat.dateDernierMessage|date('d/m/Y H:i') : 'N/A' }}</p>
+    </div>
+
+    <div id="chat-container">
+        <input type="hidden" id="chat-id" value="{{ chat.id }}">
+        <div id="chat-messages" style="height: 400px; overflow-y: scroll; border: 1px solid #ccc; padding: 10px; margin-bottom: 10px; background: #fafafa;">
+            {% for message in messages %}
+                <div class="message" style="margin-bottom: 10px; padding: 8px; background: white; border-radius: 5px;">
+                    <strong>User {{ message.expediteurId }}:</strong> {{ message.contenu }}
+                    <br><small style="color: #666;">({{ message.dateEnvoi|date('d/m/Y H:i:s') }})</small>
+                    {% if not message.lu %}
+                        <span style="color: red; font-weight: bold;"> (Non lu)</span>
+                    {% endif %}
+                </div>
+            {% else %}
+                <div style="text-align: center; color: #666; padding: 50px;">
+                    <p>Aucun message dans cette conversation.</p>
+                    <p>Commencez la conversation en envoyant un message ci-dessous.</p>
+                </div>
+            {% endfor %}
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <input type="text" id="message-input" placeholder="Tapez votre message..." style="flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 5px;">
+            <button id="send-button" style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer;">Envoyer</button>
+        </div>
+    </div>
+
+    <div style="margin-top: 20px;">
+        <a href="{{ path('chat_index') }}" class="btn btn-secondary">Retour aux conversations</a>
+    </div>
+{% endblock %}
+
+{% block javascripts %}
+    {{ parent() }}
+    <script src="{{ asset('js/chat.js') }}"></script>
+{% endblock %}

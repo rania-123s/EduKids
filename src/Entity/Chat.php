@@ -27,6 +27,12 @@ class Chat
     #[ORM\Column]
     private ?\DateTime $date_dernier_message = null;
 
+    #[ORM\Column(type: 'boolean', options: ['default' => false])]
+    private bool $is_muted = false;
+
+    #[ORM\Column(type: 'boolean', options: ['default' => false])]
+    private bool $is_read = false;
+
     /**
      * @var Collection<int, Message>
      */
@@ -117,6 +123,30 @@ class Chat
                 $message->setChat(null);
             }
         }
+
+        return $this;
+    }
+
+    public function isMuted(): ?bool
+    {
+        return $this->is_muted;
+    }
+
+    public function setIsMuted(bool $is_muted): static
+    {
+        $this->is_muted = $is_muted;
+
+        return $this;
+    }
+
+    public function isRead(): ?bool
+    {
+        return $this->is_read;
+    }
+
+    public function setIsRead(bool $is_read): static
+    {
+        $this->is_read = $is_read;
 
         return $this;
     }

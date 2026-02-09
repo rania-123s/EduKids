@@ -1,0 +1,96 @@
+{% extends 'index.html.twig' %}
+
+{% block title %}Chat{% endblock %}
+
+{% block stylesheets %}
+	<link rel="stylesheet" href="{{ asset('assets/css/chat.css') }}">
+{% endblock %}
+
+{% block body %}
+<div
+	class="chat-page"
+	id="chatApp"
+	data-user-id="{{ app.user.id }}"
+	data-role="{{ is_granted('ROLE_ADMIN') ? 'admin' : 'parent' }}"
+	data-csrf="{{ csrf_token('chat_action') }}"
+	data-mercure-url="{{ mercure(['chat/user/' ~ app.user.id]) }}"
+	data-initial-conversation-id="{{ initial_conversation_id|default('') }}"
+	data-initial-conversation-title="{{ initial_conversation_title|default('') }}"
+	data-conversations-url="{{ path('chat_conversations') }}"
+	data-conversation-create-url="{{ path('chat_conversation_create') }}"
+	data-messages-url-template="/chat/conversations/{id}/messages"
+	data-message-update-url-template="/chat/messages/{id}"
+	data-message-delete-url-template="/chat/messages/{id}"
+	data-conversation-delete-url-template="/chat/conversations/{id}"
+	data-conversation-images-url-template="/chat/conversations/{id}/images"
+>
+	<div class="chat-sidebar">
+		<div class="chat-search">
+			<input type="text" id="chatSearch" placeholder="Rechercher un parent">
+			{% if is_granted('ROLE_ADMIN') %}
+			<button class="chat-new-btn" id="chatNewConversation" title="Nouvelle conversation">+</button>
+			{% endif %}
+		</div>
+		<div class="chat-conversations" id="chatConversationList">
+			<div class="chat-empty">Aucune conversation</div>
+		</div>
+	</div>
+
+	<div class="chat-main">
+		<div class="chat-header">
+			<div class="chat-title" id="chatTitle">Sélectionnez une conversation</div>
+			<div class="chat-header-actions">
+				<button class="chat-more-btn" id="chatConversationMenuBtn">⋯</button>
+				<div class="chat-menu" id="chatConversationMenu">
+					<button class="chat-menu-item" data-action="delete-conversation">Supprimer la conversation</button>
+					<button class="chat-menu-item" data-action="images">Images récentes</button>
+				</div>
+			</div>
+		</div>
+
+		<div class="chat-messages" id="chatMessages"></div>
+
+		<div class="chat-editor">
+			<div class="chat-edit-banner" id="chatEditBanner" hidden>
+				<span>Vous modifiez un message</span>
+				<button id="chatEditCancel" type="button">Annuler</button>
+			</div>
+			<div class="chat-input-row">
+				<button class="chat-emoji-btn" id="chatEmojiBtn" type="button">😊</button>
+				<input type="text" id="chatInput" placeholder="Envoyer un message" autocomplete="off">
+				<label class="chat-upload-btn" title="Joindre un fichier">
+					<input type="file" id="chatFileInput" hidden>
+					📎
+				</label>
+				<button class="chat-send-btn" id="chatSendBtn" type="button">Envoyer</button>
+			</div>
+			<div class="chat-emoji-picker" id="chatEmojiPicker" hidden>
+				<button type="button">😀</button>
+				<button type="button">😂</button>
+				<button type="button">😍</button>
+				<button type="button">👍</button>
+				<button type="button">🙏</button>
+				<button type="button">🎉</button>
+				<button type="button">❤️</button>
+				<button type="button">😎</button>
+			</div>
+			<div class="chat-upload-preview" id="chatUploadPreview" hidden></div>
+		</div>
+	</div>
+</div>
+
+<div class="chat-modal" id="chatImagesModal" hidden>
+	<div class="chat-modal-backdrop"></div>
+	<div class="chat-modal-content">
+		<div class="chat-modal-header">
+			<h3>Images récentes</h3>
+			<button class="chat-modal-close" id="chatImagesClose">✕</button>
+		</div>
+		<div class="chat-modal-body" id="chatImagesGrid"></div>
+	</div>
+</div>
+{% endblock %}
+
+{% block javascripts %}
+	<script src="{{ asset('assets/js/chat.js') }}"></script>
+{% endblock %}

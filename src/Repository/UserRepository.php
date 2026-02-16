@@ -65,4 +65,35 @@ class UserRepository extends ServiceEntityRepository
             ->getQuery()
             ->getOneOrNullResult();
     }
+
+    /**
+     * @return User[]
+     */
+    public function searchParentsByName(string $searchTerm, ?int $excludeUserId = null, int $limit = 20): array
+    {
+        $query = mb_strtolower(trim($searchTerm));
+        if ($query === '') {
+            return [];
+        }
+
+        $qb = $this->createQueryBuilder('u')
+            ->andWhere('u.roles LIKE :roleParent')
+            ->andWhere('
+                LOWER(COALESCE(u.firstName, \'\')) LIKE :query
+                OR LOWER(COALESCE(u.lastName, \'\')) LIKE :query
+                OR LOWER(COALESCE(u.email, \'\')) LIKE :query
+            ')
+            ->setParameter('roleParent', '%"ROLE_PARENT"%')
+            ->setParameter('query', '%' . $query . '%')
+            ->orderBy('u.firstName', 'ASC')
+            ->addOrderBy('u.lastName', 'ASC')
+            ->setMaxResults(max(1, min($limit, 50)));
+
+        if ($excludeUserId !== null) {
+            $qb->andWhere('u.id != :excludeUserId')
+                ->setParameter('excludeUserId', $excludeUserId);
+        }
+
+        return $qb->getQuery()->getResult();
+    }
 }

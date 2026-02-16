@@ -6,9 +6,19 @@ use App\Repository\ConversationRepository;
 use Doctrine\Common\Collections\ArrayCollection;
 use Doctrine\Common\Collections\Collection;
 use Doctrine\ORM\Mapping as ORM;
-use App\Entity\ConversationParticipant;
+use Symfony\Component\Validator\Constraints as Assert;
 
 #[ORM\Entity(repositoryClass: ConversationRepository::class)]
+#[ORM\Table(
+    name: 'conversation',
+    indexes: [
+        new ORM\Index(name: 'idx_conversation_updated_at', columns: ['updated_at']),
+        new ORM\Index(name: 'idx_conversation_is_group', columns: ['is_group']),
+    ],
+    uniqueConstraints: [
+        new ORM\UniqueConstraint(name: 'uniq_conversation_private_key', columns: ['private_key']),
+    ]
+)]
 #[ORM\HasLifecycleCallbacks]
 class Conversation
 {
@@ -17,21 +27,21 @@ class Conversation
     #[ORM\Column]
     private ?int $id = null;
 
-    // Admin (ROLE_ADMIN)
-    #[ORM\ManyToOne(targetEntity: User::class)]
-    #[ORM\JoinColumn(nullable: false)]
-    private ?User $admin = null;
-
-    // Parent (ROLE_PARENT)
-    #[ORM\ManyToOne(targetEntity: User::class)]
-    #[ORM\JoinColumn(nullable: false)]
-    private ?User $parent = null;
-
-    #[ORM\Column]
+    #[ORM\Column(type: 'datetime_immutable')]
     private ?\DateTimeImmutable $createdAt = null;
 
-    #[ORM\Column]
+    #[ORM\Column(type: 'datetime_immutable')]
     private ?\DateTimeImmutable $updatedAt = null;
+
+    #[Assert\Length(max: 120)]
+    #[ORM\Column(length: 120, nullable: true)]
+    private ?string $title = null;
+
+    #[ORM\Column(options: ['default' => false])]
+    private bool $isGroup = false;
+
+    #[ORM\Column(length: 80, nullable: true)]
+    private ?string $privateKey = null;
 
     /** @var Collection<int, Message> */
     #[ORM\OneToMany(mappedBy: 'conversation', targetEntity: Message::class, cascade: ['persist', 'remove'], orphanRemoval: true)]
@@ -70,28 +80,6 @@ class Conversation
         return $this->id;
     }
 
-    public function getAdmin(): ?User
-    {
-        return $this->admin;
-    }
-
-    public function setAdmin(User $admin): static
-    {
-        $this->admin = $admin;
-        return $this;
-    }
-
-    public function getParent(): ?User
-    {
-        return $this->parent;
-    }
-
-    public function setParent(User $parent): static
-    {
-        $this->parent = $parent;
-        return $this;
-    }
-
     public function getCreatedAt(): ?\DateTimeImmutable
     {
         return $this->createdAt;
@@ -105,6 +93,39 @@ class Conversation
     public function setUpdatedAt(\DateTimeImmutable $updatedAt): static
     {
         $this->updatedAt = $updatedAt;
+        return $this;
+    }
+
+    public function getTitle(): ?string
+    {
+        return $this->title;
+    }
+
+    public function setTitle(?string $title): static
+    {
+        $this->title = $title;
+        return $this;
+    }
+
+    public function isGroup(): bool
+    {
+        return $this->isGroup;
+    }
+
+    public function setIsGroup(bool $isGroup): static
+    {
+        $this->isGroup = $isGroup;
+        return $this;
+    }
+
+    public function getPrivateKey(): ?string
+    {
+        return $this->privateKey;
+    }
+
+    public function setPrivateKey(?string $privateKey): static
+    {
+        $this->privateKey = $privateKey;
         return $this;
     }
 
@@ -158,7 +179,7 @@ class Conversation
     {
         if ($this->participants->removeElement($participant)) {
             if ($participant->getConversation() === $this) {
-                $participant->setConversation($this);
+                $participant->setConversation(null);
             }
         }
 

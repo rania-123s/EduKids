@@ -6,11 +6,24 @@ use App\Repository\ConversationParticipantRepository;
 use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: ConversationParticipantRepository::class)]
-#[ORM\Table(name: 'conversation_participant')]
-#[ORM\UniqueConstraint(name: 'uniq_conversation_user', columns: ['conversation_id', 'user_id'])]
+#[ORM\Table(
+    name: 'conversation_participant',
+    indexes: [
+        new ORM\Index(name: 'idx_cp_conversation', columns: ['conversation_id']),
+        new ORM\Index(name: 'idx_cp_user', columns: ['user_id']),
+        new ORM\Index(name: 'idx_cp_deleted_at', columns: ['deleted_at']),
+        new ORM\Index(name: 'idx_cp_role', columns: ['role']),
+    ],
+    uniqueConstraints: [
+        new ORM\UniqueConstraint(name: 'uniq_conversation_user', columns: ['conversation_id', 'user_id']),
+    ]
+)]
 #[ORM\HasLifecycleCallbacks]
 class ConversationParticipant
 {
+    public const ROLE_ADMIN = 'admin';
+    public const ROLE_MEMBER = 'member';
+
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
@@ -24,6 +37,9 @@ class ConversationParticipant
     #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
     private ?User $user = null;
 
+    #[ORM\Column(length: 16, options: ['default' => self::ROLE_MEMBER])]
+    private string $role = self::ROLE_MEMBER;
+
     #[ORM\Column(type: 'datetime_immutable', nullable: true)]
     private ?\DateTimeImmutable $deletedAt = null;
 
@@ -31,12 +47,12 @@ class ConversationParticipant
     private ?\DateTimeImmutable $lastReadAt = null;
 
     #[ORM\Column(type: 'datetime_immutable')]
-    private ?\DateTimeImmutable $createdAt = null;
+    private ?\DateTimeImmutable $joinedAt = null;
 
     #[ORM\PrePersist]
     public function onPrePersist(): void
     {
-        $this->createdAt ??= new \DateTimeImmutable();
+        $this->joinedAt ??= new \DateTimeImmutable();
     }
 
     public function getId(): ?int
@@ -49,7 +65,7 @@ class ConversationParticipant
         return $this->conversation;
     }
 
-    public function setConversation(Conversation $conversation): static
+    public function setConversation(?Conversation $conversation): static
     {
         $this->conversation = $conversation;
         return $this;
@@ -64,6 +80,25 @@ class ConversationParticipant
     {
         $this->user = $user;
         return $this;
+    }
+
+    public function getRole(): string
+    {
+        return $this->role;
+    }
+
+    public function setRole(string $role): static
+    {
+        $this->role = in_array($role, [self::ROLE_ADMIN, self::ROLE_MEMBER], true)
+            ? $role
+            : self::ROLE_MEMBER;
+
+        return $this;
+    }
+
+    public function isAdmin(): bool
+    {
+        return $this->role === self::ROLE_ADMIN;
     }
 
     public function getDeletedAt(): ?\DateTimeImmutable
@@ -88,8 +123,8 @@ class ConversationParticipant
         return $this;
     }
 
-    public function getCreatedAt(): ?\DateTimeImmutable
+    public function getJoinedAt(): ?\DateTimeImmutable
     {
-        return $this->createdAt;
+        return $this->joinedAt;
     }
 }

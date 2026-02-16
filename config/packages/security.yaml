@@ -20,7 +20,7 @@ security:
                 success_handler: lexik_jwt_authentication.handler.authentication_success
                 failure_handler: lexik_jwt_authentication.handler.authentication_failure
         api:
-            pattern: ^/api
+            pattern: ^/api(?!/parents(?:/|$))
             stateless: true
             jwt: ~
         main:
@@ -63,7 +63,11 @@ security:
         
         # API authentication
         - { path: ^/api/login, roles: PUBLIC_ACCESS }
+        - { path: ^/api/parents, roles: [ROLE_ADMIN, ROLE_PARENT] }
         - { path: ^/api, roles: IS_AUTHENTICATED_FULLY }
+
+        # Chat area (only admins and parents)
+        - { path: ^/chat, roles: [ROLE_ADMIN, ROLE_PARENT] }
 
         # Chat entry (must be before /admin rule)
         - { path: ^/admin-chat\.html$, roles: ROLE_USER }

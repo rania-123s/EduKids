@@ -3,11 +3,16 @@
 namespace App\Controller;
 
 use App\Entity\Conversation;
+use App\Entity\Message;
 use App\Entity\User;
+use App\Repository\ConversationParticipantRepository;
 use App\Repository\ConversationRepository;
 use App\Repository\MessageRepository;
 use App\Repository\UserRepository;
+use App\Security\Voter\ConversationVoter;
+use App\Service\ChatWebSocketTokenService;
 use App\Service\ChatService;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -20,59 +25,31 @@ class ConversationController extends AbstractController
 {
     public function __construct(
         private readonly ConversationRepository $conversationRepository,
+        private readonly ConversationParticipantRepository $participantRepository,
         private readonly MessageRepository $messageRepository,
         private readonly UserRepository $userRepository,
-        private readonly ChatService $chatService
+        private readonly ChatService $chatService,
+        private readonly ChatWebSocketTokenService $chatWebSocketTokenService,
+        #[Autowire('%env(CHAT_WS_PUBLIC_URL)%')]
+        private readonly string $chatWebSocketUrl
     ) {
     }
 
     #[Route('', name: 'chat_entry', methods: ['GET'])]
+    #[Route('', name: 'chat_index', methods: ['GET'])]
     #[IsGranted('ROLE_USER')]
-    public function entry(): Response
+    public function index(): Response
     {
-        if ($this->isGranted('ROLE_ADMIN')) {
-            return $this->redirectToRoute('chat_admin');
-        }
-
-        if ($this->isGranted('ROLE_PARENT') || $this->isGranted('ROLE_USER')) {
-            return $this->redirectToRoute('chat_parent');
-        }
-
-        throw $this->createAccessDeniedException();
+        return $this->renderChatPage();
     }
 
-    #[Route('/admin', name: 'chat_admin', methods: ['GET'])]
-    #[IsGranted('ROLE_ADMIN')]
-    public function adminChat(): Response
-    {
-        return $this->render('chat/admin_chat.html.twig');
-    }
-
-    #[Route('/parent', name: 'chat_parent', methods: ['GET'])]
+    #[Route('/{id}', name: 'chat_show', methods: ['GET'], requirements: ['id' => '\d+'])]
     #[IsGranted('ROLE_USER')]
-    public function parentChat(): Response
+    public function show(Conversation $conversation): Response
     {
-        if ($this->isGranted('ROLE_ADMIN')) {
-            return $this->redirectToRoute('chat_admin');
-        }
+        $this->denyAccessUnlessGranted(ConversationVoter::VIEW, $conversation);
 
-        /** @var User $parent */
-        $parent = $this->getUser();
-        $admin = $this->userRepository->findOneAdmin();
-
-        $initialConversationId = null;
-        $initialConversationTitle = null;
-
-        if ($admin instanceof User) {
-            $conversation = $this->chatService->getOrCreateConversation($admin, $parent);
-            $initialConversationId = $conversation->getId();
-            $initialConversationTitle = $this->getDisplayName($admin);
-        }
-
-        return $this->render('chat/chat_parent.html.twig', [
-            'initial_conversation_id' => $initialConversationId,
-            'initial_conversation_title' => $initialConversationTitle,
-        ]);
+        return $this->renderChatPage($conversation);
     }
 
     #[Route('/conversations', name: 'chat_conversations', methods: ['GET'])]
@@ -82,80 +59,350 @@ class ConversationController extends AbstractController
         /** @var User $user */
         $user = $this->getUser();
         $search = $request->query->get('q');
-        $conversations = $this->conversationRepository->findVisibleForUser($user, $search);
+        $conversations = $this->conversationRepository->findForUser($user, $search);
 
         $data = [];
         foreach ($conversations as $conversation) {
-            $lastMessage = $this->messageRepository->findLastMessage($conversation);
-            $other = $this->getOtherParticipant($conversation, $user);
-
-            $data[] = [
-                'id' => $conversation->getId(),
-                'title' => $this->getDisplayName($other),
-                'lastMessage' => $lastMessage?->getDeletedAt() ? 'Message supprimÃ©' : $lastMessage?->getContent(),
-                'lastMessageAt' => $lastMessage?->getCreatedAt()?->format(DATE_ATOM),
-            ];
+            $data[] = $this->serializeConversationListItem($conversation, $user);
         }
 
         return $this->json($data);
     }
 
-    #[Route('/conversations', name: 'chat_conversation_create', methods: ['POST'])]
-    #[IsGranted('ROLE_ADMIN')]
-    public function createConversation(Request $request): JsonResponse
+    #[Route('/conversations/{id}/summary', name: 'chat_conversation_summary', methods: ['GET'], requirements: ['id' => '\d+'])]
+    #[IsGranted('ROLE_USER')]
+    public function conversationSummary(Conversation $conversation): JsonResponse
+    {
+        $this->denyAccessUnlessGranted(ConversationVoter::VIEW, $conversation);
+        /** @var User $user */
+        $user = $this->getUser();
+
+        return $this->json($this->serializeConversationListItem($conversation, $user));
+    }
+
+    #[Route('/private', name: 'chat_private_create', methods: ['POST'])]
+    #[IsGranted('ROLE_USER')]
+    public function createPrivate(Request $request): JsonResponse
     {
         $this->assertCsrf($request);
-        /** @var User $admin */
-        $admin = $this->getUser();
+        /** @var User $actor */
+        $actor = $this->getUser();
+        $this->assertCanUseChat($actor);
 
-        $payload = $request->toArray();
-        $parentId = (int) ($payload['userId'] ?? 0);
-        $parent = $this->userRepository->find($parentId);
-
-        if (!$parent instanceof User || !in_array('ROLE_PARENT', $parent->getRoles(), true)) {
-            return $this->json(['error' => 'Parent not found'], Response::HTTP_BAD_REQUEST);
+        $payload = $this->getPayload($request);
+        $parentId = (int) ($payload['parentId'] ?? 0);
+        if ($parentId <= 0) {
+            return $this->json(['error' => 'parentId is required.'], Response::HTTP_BAD_REQUEST);
         }
 
-        $conversation = $this->chatService->getOrCreateConversation($admin, $parent);
+        $otherParent = $this->userRepository->find($parentId);
+        if (!$otherParent instanceof User || !$this->isParentRole($otherParent)) {
+            return $this->json(['error' => 'Parent not found.'], Response::HTTP_NOT_FOUND);
+        }
+
+        if ($otherParent->getId() === $actor->getId()) {
+            return $this->json(['error' => 'Cannot create a private conversation with yourself.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $conversation = $this->chatService->createOrGetPrivateConversation($actor, $otherParent);
 
         return $this->json([
             'id' => $conversation->getId(),
+            'title' => $this->getConversationTitle($conversation, $actor),
+            'redirectUrl' => $this->generateUrl('chat_show', ['id' => $conversation->getId()]),
         ]);
     }
 
-    #[Route('/conversations/{id}', name: 'chat_conversation_delete', methods: ['DELETE'])]
+    #[Route('/group', name: 'chat_group_create', methods: ['POST'])]
     #[IsGranted('ROLE_USER')]
-    public function deleteConversation(Conversation $conversation, Request $request): JsonResponse
+    public function createGroup(Request $request): JsonResponse
     {
         $this->assertCsrf($request);
-        /** @var User $user */
-        $user = $this->getUser();
-        $this->assertUserInConversation($conversation, $user);
+        /** @var User $actor */
+        $actor = $this->getUser();
+        $this->assertCanUseChat($actor);
 
-        $this->chatService->deleteConversationForUser($conversation, $user);
+        $payload = $this->getPayload($request);
+        $title = trim((string) ($payload['title'] ?? $payload['groupName'] ?? ''));
+        if ($title === '') {
+            return $this->json(['error' => 'Group name is required.'], Response::HTTP_BAD_REQUEST);
+        }
+        if (mb_strlen($title) > 120) {
+            return $this->json(['error' => 'Group name is too long (max 120).'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $memberIds = $payload['memberIds'] ?? [];
+        if (!is_array($memberIds)) {
+            return $this->json(['error' => 'memberIds must be an array.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $memberIds = array_values(array_unique(array_filter(
+            array_map(static fn (mixed $value): int => (int) $value, $memberIds),
+            static fn (int $id): bool => $id > 0
+        )));
+
+        $memberIds = array_values(array_filter(
+            $memberIds,
+            static fn (int $id): bool => $id !== $actor->getId()
+        ));
+
+        if (count($memberIds) < 2) {
+            return $this->json(['error' => 'Select at least 2 other parents.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $selectedParents = [];
+        foreach ($memberIds as $memberId) {
+            $parent = $this->userRepository->find($memberId);
+            if (!$parent instanceof User || !$this->isParentRole($parent)) {
+                return $this->json(['error' => sprintf('Parent %d not found.', $memberId)], Response::HTTP_NOT_FOUND);
+            }
+            $selectedParents[] = $parent;
+        }
+
+        try {
+            $conversation = $this->chatService->createGroupConversation($actor, $selectedParents, $title);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->json(['error' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
+        }
+
+        return $this->json([
+            'id' => $conversation->getId(),
+            'title' => $this->getConversationTitle($conversation, $actor),
+            'redirectUrl' => $this->generateUrl('chat_show', ['id' => $conversation->getId()]),
+        ]);
+    }
+
+    #[Route('/{id}/leave', name: 'chat_group_leave', methods: ['POST'], requirements: ['id' => '\d+'])]
+    #[IsGranted('ROLE_USER')]
+    public function leaveGroup(Conversation $conversation, Request $request): JsonResponse
+    {
+        $this->assertCsrf($request);
+        $this->denyAccessUnlessGranted(ConversationVoter::LEAVE, $conversation);
+        /** @var User $actor */
+        $actor = $this->getUser();
+
+        $this->chatService->leaveGroup($conversation, $actor);
+
+        return $this->json([
+            'ok' => true,
+            'redirectUrl' => $this->generateUrl('chat_index'),
+        ]);
+    }
+
+    #[Route('/{id}/members/add', name: 'chat_group_members_add', methods: ['POST'], requirements: ['id' => '\d+'])]
+    #[IsGranted('ROLE_USER')]
+    public function addMember(Conversation $conversation, Request $request): JsonResponse
+    {
+        $this->assertCsrf($request);
+        $this->denyAccessUnlessGranted(ConversationVoter::MANAGE_MEMBERS, $conversation);
+
+        $payload = $this->getPayload($request);
+        $memberId = (int) ($payload['memberId'] ?? 0);
+        if ($memberId <= 0) {
+            return $this->json(['error' => 'memberId is required.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $member = $this->userRepository->find($memberId);
+        if (!$member instanceof User || !$this->isParentRole($member)) {
+            return $this->json(['error' => 'Parent not found.'], Response::HTTP_NOT_FOUND);
+        }
+
+        try {
+            $this->chatService->addMemberToGroup($conversation, $member);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->json(['error' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
+        }
 
         return $this->json(['ok' => true]);
     }
 
-    private function assertUserInConversation(Conversation $conversation, User $user): void
+    #[Route('/{id}/members', name: 'chat_group_members_list', methods: ['GET'], requirements: ['id' => '\d+'])]
+    #[IsGranted('ROLE_USER')]
+    public function listMembers(Conversation $conversation): JsonResponse
     {
-        if ($conversation->getAdmin()?->getId() === $user->getId()) {
-            return;
-        }
-        if ($conversation->getParent()?->getId() === $user->getId()) {
-            return;
-        }
+        $this->denyAccessUnlessGranted(ConversationVoter::VIEW, $conversation);
+        /** @var User $viewer */
+        $viewer = $this->getUser();
 
-        throw $this->createAccessDeniedException();
+        $members = $this->participantRepository->findActiveMembers($conversation);
+        $data = array_map(function ($participant) use ($viewer): array {
+            $member = $participant->getUser();
+
+            return [
+                'id' => $member?->getId(),
+                'name' => $this->getDisplayName($member),
+                'email' => $member?->getEmail(),
+                'role' => $participant->getRole(),
+                'isCurrentUser' => $member?->getId() === $viewer->getId(),
+            ];
+        }, $members);
+
+        return $this->json([
+            'isGroup' => $conversation->isGroup(),
+            'canManage' => $this->participantRepository->isGroupAdmin($conversation, $viewer),
+            'items' => $data,
+        ]);
     }
 
-    private function getOtherParticipant(Conversation $conversation, User $user): ?User
+    #[Route('/{id}/members/remove', name: 'chat_group_members_remove', methods: ['POST'], requirements: ['id' => '\d+'])]
+    #[IsGranted('ROLE_USER')]
+    public function removeMember(Conversation $conversation, Request $request): JsonResponse
     {
-        if ($conversation->getAdmin()?->getId() === $user->getId()) {
-            return $conversation->getParent();
+        $this->assertCsrf($request);
+        $this->denyAccessUnlessGranted(ConversationVoter::MANAGE_MEMBERS, $conversation);
+        /** @var User $actor */
+        $actor = $this->getUser();
+
+        $payload = $this->getPayload($request);
+        $memberId = (int) ($payload['memberId'] ?? 0);
+        if ($memberId <= 0) {
+            return $this->json(['error' => 'memberId is required.'], Response::HTTP_BAD_REQUEST);
         }
 
-        return $conversation->getAdmin();
+        if ($memberId === $actor->getId()) {
+            return $this->json(['error' => 'Use leave endpoint to quit the group.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $member = $this->userRepository->find($memberId);
+        if (!$member instanceof User) {
+            return $this->json(['error' => 'Member not found.'], Response::HTTP_NOT_FOUND);
+        }
+
+        try {
+            $this->chatService->removeMemberFromGroup($conversation, $member);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->json(['error' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
+        }
+
+        return $this->json(['ok' => true]);
+    }
+
+    private function renderChatPage(?Conversation $conversation = null): Response
+    {
+        /** @var User $viewer */
+        $viewer = $this->getUser();
+
+        return $this->render('chat/chat_parent.html.twig', [
+            'initial_conversation_id' => $conversation?->getId(),
+            'initial_conversation_title' => $conversation ? $this->getConversationTitle($conversation, $viewer) : null,
+            'websocket_url' => $this->chatWebSocketUrl,
+            'websocket_token' => $viewer->getId() !== null
+                ? $this->chatWebSocketTokenService->createToken($viewer->getId())
+                : '',
+        ]);
+    }
+
+    private function getPayload(Request $request): array
+    {
+        try {
+            return $request->toArray();
+        } catch (\JsonException) {
+            return $request->request->all();
+        }
+    }
+
+    private function getConversationTitle(Conversation $conversation, User $viewer): string
+    {
+        if ($conversation->isGroup()) {
+            $title = trim((string) $conversation->getTitle());
+
+            return $title !== '' ? $title : 'Groupe';
+        }
+
+        return $this->getPrivateConversationTitle($conversation, $viewer);
+    }
+
+    private function getPrivateConversationTitle(Conversation $conversation, User $viewer): string
+    {
+        // Private conversation title must always be the other participant full name.
+        $activeMembers = $this->participantRepository->findActiveMembers($conversation);
+        foreach ($activeMembers as $member) {
+            $user = $member->getUser();
+            if ($user === null || $user->getId() === $viewer->getId()) {
+                continue;
+            }
+
+            return $this->getPrivateParticipantName($user);
+        }
+
+        // Fallback for inconsistent legacy data.
+        foreach ($conversation->getParticipants() as $participant) {
+            $user = $participant->getUser();
+            if ($user !== null && $user->getId() !== $viewer->getId()) {
+                return $this->getPrivateParticipantName($user);
+            }
+        }
+
+        return 'Conversation privee';
+    }
+
+    private function getPrivateParticipantName(User $user): string
+    {
+        $lastName = trim((string) $user->getLastName());
+        $firstName = trim((string) $user->getFirstName());
+
+        $parts = array_values(array_filter([$lastName, $firstName]));
+        if ($parts !== []) {
+            return implode(' ', $parts);
+        }
+
+        return $this->getDisplayName($user);
+    }
+
+    private function formatLastMessagePreview(?Message $lastMessage, User $viewer): string
+    {
+        if (!$lastMessage instanceof Message) {
+            return '';
+        }
+
+        if ($lastMessage->getDeletedAt() !== null) {
+            return 'Message supprime';
+        }
+
+        $content = preg_replace('/\s+/', ' ', trim((string) $lastMessage->getContent()));
+        if (is_string($content) && $content !== '') {
+            return $this->truncatePreview($content, 55);
+        }
+
+        $hasAttachment = $lastMessage->getType() === 'image'
+            || $lastMessage->getType() === 'file'
+            || ($lastMessage->getFilePath() !== null && $lastMessage->getFilePath() !== '');
+
+        if ($hasAttachment) {
+            $sender = $lastMessage->getSender();
+            if ($sender !== null && $sender->getId() === $viewer->getId()) {
+                return 'Vous avez envoyé une pièce jointe';
+            }
+
+            return sprintf('%s a envoyé une pièce jointe', $this->getDisplayName($sender));
+        }
+
+        return 'Message';
+    }
+
+    private function truncatePreview(string $value, int $maxLength): string
+    {
+        if ($maxLength < 4 || mb_strlen($value) <= $maxLength) {
+            return $value;
+        }
+
+        return rtrim(mb_substr($value, 0, $maxLength - 3)) . '...';
+    }
+
+    private function serializeConversationListItem(Conversation $conversation, User $user): array
+    {
+        $lastMessage = $this->messageRepository->findLastMessage($conversation);
+
+        return [
+            'id' => $conversation->getId(),
+            'title' => $this->getConversationTitle($conversation, $user),
+            'isGroup' => $conversation->isGroup(),
+            'isAdmin' => $conversation->isGroup()
+                ? $this->participantRepository->isGroupAdmin($conversation, $user)
+                : false,
+            'lastMessage' => $this->formatLastMessagePreview($lastMessage, $user),
+            'lastMessageAt' => $lastMessage?->getCreatedAt()?->format(DATE_ATOM),
+        ];
     }
 
     private function getDisplayName(?User $user): string
@@ -165,14 +412,39 @@ class ConversationController extends AbstractController
         }
 
         $parts = array_filter([$user->getFirstName(), $user->getLastName()]);
-        return $parts ? implode(' ', $parts) : $user->getEmail();
+        if ($parts !== []) {
+            return implode(' ', $parts);
+        }
+
+        return (string) $user->getEmail();
     }
 
     private function assertCsrf(Request $request): void
     {
         $token = $request->headers->get('X-CSRF-TOKEN') ?? $request->request->get('_token');
         if (!$this->isCsrfTokenValid('chat_action', (string) $token)) {
-            throw $this->createAccessDeniedException('Invalid CSRF token');
+            throw $this->createAccessDeniedException('Invalid CSRF token.');
         }
+    }
+
+    private function isParentRole(User $user): bool
+    {
+        return in_array('ROLE_PARENT', $user->getRoles(), true);
+    }
+
+    private function canUseChat(User $user): bool
+    {
+        $roles = $user->getRoles();
+
+        return in_array('ROLE_ADMIN', $roles, true) || in_array('ROLE_PARENT', $roles, true);
+    }
+
+    private function assertCanUseChat(User $user): void
+    {
+        if ($this->canUseChat($user)) {
+            return;
+        }
+
+        throw $this->createAccessDeniedException('Only admins and parents can perform this action.');
     }
 }

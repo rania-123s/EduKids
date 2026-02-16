@@ -4,7 +4,6 @@ namespace App\Repository;
 
 use App\Entity\Conversation;
 use App\Entity\Message;
-use App\Entity\User;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
@@ -16,24 +15,38 @@ class MessageRepository extends ServiceEntityRepository
     }
 
     /**
-     * Récupérer tous les messages d'une conversation (triés par date)
+     * @return Message[]
      */
-    public function findByConversation(Conversation $conversation): array
+    public function findPaginatedForConversation(Conversation $conversation, int $page = 1, int $limit = 30): array
     {
-        return $this->createQueryBuilder('m')
+        $page = max(1, $page);
+        $limit = max(1, min($limit, 100));
+        $offset = ($page - 1) * $limit;
+
+        $messages = $this->createQueryBuilder('m')
             ->andWhere('m.conversation = :conversation')
             ->setParameter('conversation', $conversation)
-            ->orderBy('m.createdAt', 'ASC')
+            ->orderBy('m.createdAt', 'DESC')
+            ->addOrderBy('m.id', 'DESC')
+            ->setFirstResult($offset)
+            ->setMaxResults($limit)
             ->getQuery()
             ->getResult();
+
+        return array_reverse($messages);
     }
 
+    /**
+     * @return Message[]
+     */
     public function findForConversation(Conversation $conversation, ?\DateTimeImmutable $before = null, int $limit = 50): array
     {
+        $limit = max(1, min($limit, 100));
         $qb = $this->createQueryBuilder('m')
             ->andWhere('m.conversation = :conversation')
             ->setParameter('conversation', $conversation)
             ->orderBy('m.createdAt', 'ASC')
+            ->addOrderBy('m.id', 'ASC')
             ->setMaxResults($limit);
 
         if ($before !== null) {
@@ -44,103 +57,39 @@ class MessageRepository extends ServiceEntityRepository
         return $qb->getQuery()->getResult();
     }
 
-    /**
-     * Compter les messages non lus d'une conversation pour un utilisateur
-     * (messages non lus dont l'expéditeur n'est pas cet utilisateur)
-     */
-    public function countUnreadInConversationForUser(Conversation $conversation, User $user): int
-    {
-        return (int) $this->createQueryBuilder('m')
-            ->select('COUNT(m.id)')
-            ->andWhere('m.conversation = :conversation')
-            ->andWhere('m.isRead = false')
-            ->andWhere('m.sender != :user')
-            ->setParameter('conversation', $conversation)
-            ->setParameter('user', $user)
-            ->getQuery()
-            ->getSingleScalarResult();
-    }
-
-    /**
-     * Dernier message d'une conversation
-     */
     public function findLastMessage(Conversation $conversation): ?Message
     {
         return $this->createQueryBuilder('m')
             ->andWhere('m.conversation = :conversation')
             ->setParameter('conversation', $conversation)
             ->orderBy('m.createdAt', 'DESC')
+            ->addOrderBy('m.id', 'DESC')
             ->setMaxResults(1)
             ->getQuery()
             ->getOneOrNullResult();
     }
 
+    /**
+     * @return Message[]
+     */
     public function findRecentImages(Conversation $conversation, int $limit = 12): array
     {
         return $this->createQueryBuilder('m')
             ->andWhere('m.conversation = :conversation')
-            ->andWhere('m.type = :type')
-            ->andWhere('m.filePath IS NOT NULL')
+            ->andWhere('m.deletedAt IS NULL')
+            ->andWhere('(
+                EXISTS (
+                    SELECT 1 FROM App\Entity\MessageAttachment ma
+                    WHERE ma.message = m AND ma.isImage = :isImage
+                )
+                OR (m.type = :legacyType AND m.filePath IS NOT NULL)
+            )')
             ->setParameter('conversation', $conversation)
-            ->setParameter('type', 'image')
+            ->setParameter('isImage', true)
+            ->setParameter('legacyType', 'image')
             ->orderBy('m.createdAt', 'DESC')
-            ->setMaxResults($limit)
-            ->getQuery()
-            ->getResult();
-    }
-
-    /**
-     * Marquer comme lus tous les messages d'une conversation
-     * reçus par un utilisateur (donc envoyés par l'autre)
-     */
-    public function markConversationAsReadForUser(Conversation $conversation, User $user): int
-    {
-        // UPDATE Message m SET m.isRead = true WHERE ...
-        return $this->createQueryBuilder('m')
-            ->update()
-            ->set('m.isRead', ':read')
-            ->where('m.conversation = :conversation')
-            ->andWhere('m.isRead = false')
-            ->andWhere('m.sender != :user')
-            ->setParameter('conversation', $conversation)
-            ->setParameter('user', $user)
-            ->setParameter('read', true)
-            ->getQuery()
-            ->execute();
-    }
-
-    /**
-     * Récupérer les messages non lus pour un admin (toutes conversations confondues)
-     * -> messages non lus envoyés par des parents
-     */
-    public function findUnreadForAdmin(int $adminId): array
-    {
-        return $this->createQueryBuilder('m')
-            ->join('m.conversation', 'c')
-            ->join('c.admin', 'a')
-            ->where('a.id = :adminId')
-            ->andWhere('m.isRead = false')
-            ->andWhere('m.sender != a') // envoyé par le parent
-            ->setParameter('adminId', $adminId)
-            ->orderBy('m.createdAt', 'DESC')
-            ->getQuery()
-            ->getResult();
-    }
-
-    /**
-     * Récupérer les messages non lus pour un parent (toutes conversations confondues)
-     * -> messages non lus envoyés par l'admin
-     */
-    public function findUnreadForParent(int $parentId): array
-    {
-        return $this->createQueryBuilder('m')
-            ->join('m.conversation', 'c')
-            ->join('c.parent', 'p')
-            ->where('p.id = :parentId')
-            ->andWhere('m.isRead = false')
-            ->andWhere('m.sender != p') // envoyé par l'admin
-            ->setParameter('parentId', $parentId)
-            ->orderBy('m.createdAt', 'DESC')
+            ->addOrderBy('m.id', 'DESC')
+            ->setMaxResults(max(1, min($limit, 100)))
             ->getQuery()
             ->getResult();
     }

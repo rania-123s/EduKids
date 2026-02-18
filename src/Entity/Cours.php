@@ -30,10 +30,17 @@ class Cours
     #[ORM\Column(length: 255)]
     private ?string $image = null;
 
+    #[ORM\Column(options: ['default' => 0])]
+    private int $likes = 0;
+
+    #[ORM\Column(options: ['default' => 0])]
+    private int $dislikes = 0;
+
     /**
      * @var Collection<int, Lecon>
      */
     #[ORM\OneToMany(targetEntity: Lecon::class, mappedBy: 'cours')]
+    #[ORM\OrderBy(['ordre' => 'ASC'])]
     private Collection $lecons;
 
     /**
@@ -109,6 +116,30 @@ class Cours
     public function setImage(string $image): static
     {
         $this->image = $image;
+
+        return $this;
+    }
+
+    public function getLikes(): int
+    {
+        return $this->likes;
+    }
+
+    public function setLikes(int $likes): static
+    {
+        $this->likes = max(0, $likes);
+
+        return $this;
+    }
+
+    public function getDislikes(): int
+    {
+        return $this->dislikes;
+    }
+
+    public function setDislikes(int $dislikes): static
+    {
+        $this->dislikes = max(0, $dislikes);
 
         return $this;
     }

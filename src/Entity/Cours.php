@@ -49,10 +49,17 @@ class Cours
     #[ORM\OneToMany(targetEntity: Quiz::class, mappedBy: 'cours')]
     private Collection $quizzes;
 
+    /**
+     * @var Collection<int, UserCoursProgress>
+     */
+    #[ORM\ManyToMany(targetEntity: UserCoursProgress::class, mappedBy: 'cours')]
+    private Collection $progress;
+
     public function __construct()
     {
         $this->lecons = new ArrayCollection();
         $this->quizzes = new ArrayCollection();
+        $this->progress = new ArrayCollection();
     }
 
     public function getId(): ?int
@@ -199,6 +206,33 @@ class Cours
             if ($quiz->getCours() === $this) {
                 $quiz->setCours(null);
             }
+        }
+
+        return $this;
+    }
+
+    /**
+     * @return Collection<int, UserCoursProgress>
+     */
+    public function getProgress(): Collection
+    {
+        return $this->progress;
+    }
+
+    public function addProgress(UserCoursProgress $progress): static
+    {
+        if (!$this->progress->contains($progress)) {
+            $this->progress->add($progress);
+            $progress->addCour($this);
+        }
+
+        return $this;
+    }
+
+    public function removeProgress(UserCoursProgress $progress): static
+    {
+        if ($this->progress->removeElement($progress)) {
+            $progress->removeCour($this);
         }
 
         return $this;

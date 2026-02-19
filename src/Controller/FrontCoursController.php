@@ -4,7 +4,10 @@ namespace App\Controller;
 
 use App\Entity\Cours;
 use App\Entity\Lecon;
+use App\Entity\User;
+use App\Entity\UserCoursProgress;
 use App\Repository\CoursRepository;
+use App\Repository\UserCoursProgressRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Knp\Component\Pager\PaginatorInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -18,9 +21,7 @@ use Symfony\UX\Chartjs\Model\Chart;
 class FrontCoursController extends AbstractController
 {
     private const SESSION_STUDENT_COURSE_IDS = 'student_course_ids';
-    private const SESSION_STUDENT_PROGRESS = 'student_course_progress';
 
-    // Page d'accueil
     #[Route('/', name: 'home')]
     #[Route('/home', name: 'home_alias')]
     public function home(): Response
@@ -28,13 +29,23 @@ class FrontCoursController extends AbstractController
         return $this->render('home_page/index.html.twig');
     }
 
-    // Liste des cours
     #[Route('/courses', name: 'front_courses')]
-    public function courses(CoursRepository $repo, Request $request, PaginatorInterface $paginator): Response
-    {
-        $studentCourseIds = $this->normalizeCourseIds(
-            $request->getSession()->get(self::SESSION_STUDENT_COURSE_IDS, [])
-        );
+    public function courses(
+        CoursRepository $repo,
+        Request $request,
+        PaginatorInterface $paginator,
+        UserCoursProgressRepository $userCoursProgressRepository
+    ): Response {
+        $studentCourseIds = [];
+        $user = $this->getUser();
+
+        if ($user instanceof User) {
+            $studentCourseIds = $userCoursProgressRepository->findCourseIdsByUser($user);
+        } else {
+            $studentCourseIds = $this->normalizeCourseIds(
+                $request->getSession()->get(self::SESSION_STUDENT_COURSE_IDS, [])
+            );
+        }
 
         $cours = $paginator->paginate(
             $repo->findAllWithLeconsQueryBuilder(),
@@ -48,48 +59,36 @@ class FrontCoursController extends AbstractController
         ]);
     }
 
-    // Détail d'un cours
     #[Route('/courses/{id}', name: 'front_cours_show', requirements: ['id' => '\d+'])]
     public function courseShow(Cours $cours): Response
     {
         return $this->render('front/course_show.html.twig', [
             'cours' => $cours,
-            'lecons' => $cours->getLecons()
+            'lecons' => $cours->getLecons(),
         ]);
     }
 
     #[Route('/student/dashboard', name: 'front_student_dashboard')]
     public function studentDashboard(
-        Request $request,
-        CoursRepository $repo,
         ChartBuilderInterface $chartBuilder,
-        TranslatorInterface $translator
-    ): Response
-    {
-        $session = $request->getSession();
-        $selectedIds = $this->normalizeCourseIds($session->get(self::SESSION_STUDENT_COURSE_IDS, []));
-        $progressMap = $this->normalizeProgressMap($session->get(self::SESSION_STUDENT_PROGRESS, []));
-
-        $courses = $selectedIds === [] ? [] : $repo->findBy(['id' => $selectedIds]);
-        $courseOrder = array_flip($selectedIds);
-
-        usort(
-            $courses,
-            static fn (Cours $a, Cours $b): int => ($courseOrder[$a->getId()] ?? PHP_INT_MAX) <=> ($courseOrder[$b->getId()] ?? PHP_INT_MAX)
-        );
-
-        $validIds = array_values(array_map(static fn (Cours $c): int => (int) $c->getId(), $courses));
-        if ($validIds !== $selectedIds) {
-            $session->set(self::SESSION_STUDENT_COURSE_IDS, $validIds);
+        TranslatorInterface $translator,
+        UserCoursProgressRepository $userCoursProgressRepository
+    ): Response {
+        $user = $this->getUser();
+        if (!$user instanceof User) {
+            return $this->redirectToRoute('app_login');
         }
 
-        $progressMap = array_intersect_key($progressMap, array_flip($validIds));
-        $session->set(self::SESSION_STUDENT_PROGRESS, $progressMap);
-
+        $progressEntries = $userCoursProgressRepository->findByUserOrdered($user);
         $studentCourses = [];
-        foreach ($courses as $course) {
-            $courseId = (int) $course->getId();
-            $progress = max(0, min(100, (int) ($progressMap[$courseId] ?? 0)));
+
+        foreach ($progressEntries as $progressEntry) {
+            $course = $progressEntry->getCours();
+            if (!$course instanceof Cours) {
+                continue;
+            }
+
+            $progress = max(0, min(100, $progressEntry->getProgress()));
             $totalLecons = $course->getLecons()->count();
             $completedLessons = $totalLecons > 0
                 ? (int) floor(($progress / 100) * $totalLecons)
@@ -190,19 +189,30 @@ class FrontCoursController extends AbstractController
     }
 
     #[Route('/parent/dashboard', name: 'front_parent_dashboard')]
-    public function parentDashboard(Request $request, CoursRepository $repo): Response
-    {
-        $childrenCourseIds = $this->normalizeCourseIds(
-            $request->getSession()->get(self::SESSION_STUDENT_COURSE_IDS, [])
-        );
+    public function parentDashboard(
+        Request $request,
+        CoursRepository $repo,
+        UserCoursProgressRepository $userCoursProgressRepository
+    ): Response {
+        $user = $this->getUser();
+        if ($user instanceof User) {
+            $childrenCourses = array_values(array_filter(array_map(
+                static fn (UserCoursProgress $progress): ?Cours => $progress->getCours(),
+                $userCoursProgressRepository->findByUserOrdered($user)
+            )));
+        } else {
+            $childrenCourseIds = $this->normalizeCourseIds(
+                $request->getSession()->get(self::SESSION_STUDENT_COURSE_IDS, [])
+            );
 
-        $childrenCourses = $childrenCourseIds === [] ? [] : $repo->findBy(['id' => $childrenCourseIds]);
-        $courseOrder = array_flip($childrenCourseIds);
+            $childrenCourses = $childrenCourseIds === [] ? [] : $repo->findBy(['id' => $childrenCourseIds]);
+            $courseOrder = array_flip($childrenCourseIds);
 
-        usort(
-            $childrenCourses,
-            static fn (Cours $a, Cours $b): int => ($courseOrder[$a->getId()] ?? PHP_INT_MAX) <=> ($courseOrder[$b->getId()] ?? PHP_INT_MAX)
-        );
+            usort(
+                $childrenCourses,
+                static fn (Cours $a, Cours $b): int => ($courseOrder[$a->getId()] ?? PHP_INT_MAX) <=> ($courseOrder[$b->getId()] ?? PHP_INT_MAX)
+            );
+        }
 
         $childrenLessonsCount = array_sum(array_map(
             static fn (Cours $course): int => $course->getLecons()->count(),
@@ -224,55 +234,73 @@ class FrontCoursController extends AbstractController
     }
 
     #[Route('/student/courses/{id}/toggle', name: 'front_student_course_toggle', methods: ['POST'], requirements: ['id' => '\d+'])]
-    public function toggleStudentCourse(Request $request, Cours $cours): Response
-    {
+    public function toggleStudentCourse(
+        Request $request,
+        Cours $cours,
+        EntityManagerInterface $em,
+        UserCoursProgressRepository $userCoursProgressRepository
+    ): Response {
         $token = (string) $request->request->get('_token', '');
         if (!$this->isCsrfTokenValid('student_course_toggle_' . $cours->getId(), $token)) {
             throw $this->createAccessDeniedException('Invalid CSRF token.');
         }
 
-        $session = $request->getSession();
-        $selectedIds = $this->normalizeCourseIds($session->get(self::SESSION_STUDENT_COURSE_IDS, []));
-        $progressMap = $this->normalizeProgressMap($session->get(self::SESSION_STUDENT_PROGRESS, []));
-        $courseId = (int) $cours->getId();
-
-        $existingIndex = array_search($courseId, $selectedIds, true);
-        if ($existingIndex === false) {
-            $selectedIds[] = $courseId;
-            $progressMap[$courseId] = $progressMap[$courseId] ?? 0;
-        } else {
-            unset($selectedIds[$existingIndex], $progressMap[$courseId]);
-            $selectedIds = array_values($selectedIds);
+        $user = $this->getUser();
+        if (!$user instanceof User) {
+            return $this->redirectToRoute('app_login');
         }
 
-        $session->set(self::SESSION_STUDENT_COURSE_IDS, $selectedIds);
-        $session->set(self::SESSION_STUDENT_PROGRESS, $progressMap);
+        $existingProgress = $userCoursProgressRepository->findOneByUserAndCours($user, $cours);
+        $isAddingCourse = $existingProgress === null;
 
-        return $this->redirect($request->headers->get('referer') ?: $this->generateUrl('front_courses'));
+        if ($isAddingCourse) {
+            $newProgress = (new UserCoursProgress())
+                ->setUser($user)
+                ->setCours($cours)
+                ->setProgress(0);
+
+            $em->persist($newProgress);
+        } else {
+            $em->remove($existingProgress);
+        }
+
+        $em->flush();
+
+        if ($isAddingCourse) {
+            return $this->redirectToRoute('front_student_dashboard');
+        }
+
+        return $this->redirect($request->headers->get('referer') ?: $this->generateUrl('front_student_dashboard'));
     }
 
     #[Route('/student/courses/{id}/continue', name: 'front_student_course_continue', methods: ['POST'], requirements: ['id' => '\d+'])]
-    public function continueStudentCourse(Request $request, Cours $cours): Response
-    {
+    public function continueStudentCourse(
+        Request $request,
+        Cours $cours,
+        EntityManagerInterface $em,
+        UserCoursProgressRepository $userCoursProgressRepository
+    ): Response {
         $token = (string) $request->request->get('_token', '');
         if (!$this->isCsrfTokenValid('student_course_continue_' . $cours->getId(), $token)) {
             throw $this->createAccessDeniedException('Invalid CSRF token.');
         }
 
-        $session = $request->getSession();
-        $selectedIds = $this->normalizeCourseIds($session->get(self::SESSION_STUDENT_COURSE_IDS, []));
-        $progressMap = $this->normalizeProgressMap($session->get(self::SESSION_STUDENT_PROGRESS, []));
-        $courseId = (int) $cours->getId();
-
-        if (!in_array($courseId, $selectedIds, true)) {
-            $selectedIds[] = $courseId;
+        $user = $this->getUser();
+        if (!$user instanceof User) {
+            return $this->redirectToRoute('app_login');
         }
 
-        $currentProgress = (int) ($progressMap[$courseId] ?? 0);
-        $progressMap[$courseId] = min(100, $currentProgress + 10);
+        $progressEntry = $userCoursProgressRepository->findOneByUserAndCours($user, $cours);
+        if (!$progressEntry instanceof UserCoursProgress) {
+            $progressEntry = (new UserCoursProgress())
+                ->setUser($user)
+                ->setCours($cours)
+                ->setProgress(0);
+            $em->persist($progressEntry);
+        }
 
-        $session->set(self::SESSION_STUDENT_COURSE_IDS, array_values(array_unique($selectedIds)));
-        $session->set(self::SESSION_STUDENT_PROGRESS, $progressMap);
+        $progressEntry->setProgress($progressEntry->getProgress() + 10);
+        $em->flush();
 
         return $this->redirectToRoute('front_student_dashboard');
     }
@@ -339,24 +367,5 @@ class FrontCoursController extends AbstractController
         }
 
         return array_values(array_unique($normalized));
-    }
-
-    private function normalizeProgressMap(mixed $progressMap): array
-    {
-        if (!is_array($progressMap)) {
-            return [];
-        }
-
-        $normalized = [];
-        foreach ($progressMap as $courseId => $progress) {
-            $id = (int) $courseId;
-            if ($id <= 0) {
-                continue;
-            }
-
-            $normalized[$id] = max(0, min(100, (int) $progress));
-        }
-
-        return $normalized;
     }
 }

@@ -51,7 +51,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     /**
      * @var Collection<int, UserCoursProgress>
      */
-    #[ORM\ManyToMany(targetEntity: UserCoursProgress::class, mappedBy: 'user')]
+    #[ORM\OneToMany(targetEntity: UserCoursProgress::class, mappedBy: 'user', orphanRemoval: true)]
     private Collection $userCoursProgress;
 
     public function __construct()
@@ -208,7 +208,7 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     {
         if (!$this->userCoursProgress->contains($userCoursProgress)) {
             $this->userCoursProgress->add($userCoursProgress);
-            $userCoursProgress->addUser($this);
+            $userCoursProgress->setUser($this);
         }
 
         return $this;
@@ -217,7 +217,9 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function removeUserCoursProgress(UserCoursProgress $userCoursProgress): static
     {
         if ($this->userCoursProgress->removeElement($userCoursProgress)) {
-            $userCoursProgress->removeUser($this);
+            if ($userCoursProgress->getUser() === $this) {
+                $userCoursProgress->setUser(null);
+            }
         }
 
         return $this;

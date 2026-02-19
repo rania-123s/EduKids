@@ -52,7 +52,7 @@ class Cours
     /**
      * @var Collection<int, UserCoursProgress>
      */
-    #[ORM\ManyToMany(targetEntity: UserCoursProgress::class, mappedBy: 'cours')]
+    #[ORM\OneToMany(targetEntity: UserCoursProgress::class, mappedBy: 'cours', orphanRemoval: true)]
     private Collection $progress;
 
     public function __construct()
@@ -223,7 +223,7 @@ class Cours
     {
         if (!$this->progress->contains($progress)) {
             $this->progress->add($progress);
-            $progress->addCour($this);
+            $progress->setCours($this);
         }
 
         return $this;
@@ -232,7 +232,9 @@ class Cours
     public function removeProgress(UserCoursProgress $progress): static
     {
         if ($this->progress->removeElement($progress)) {
-            $progress->removeCour($this);
+            if ($progress->getCours() === $this) {
+                $progress->setCours(null);
+            }
         }
 
         return $this;

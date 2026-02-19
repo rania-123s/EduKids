@@ -6,6 +6,9 @@ use App\Repository\UserCoursProgressRepository;
 use Doctrine\ORM\Mapping as ORM;
 
 #[ORM\Entity(repositoryClass: UserCoursProgressRepository::class)]
+#[ORM\Table(name: 'user_cours_progress', uniqueConstraints: [
+    new ORM\UniqueConstraint(name: 'UNIQ_USER_COURS_PROGRESS_USER_COURS', columns: ['user_id', 'cours_id']),
+])]
 class UserCoursProgress
 {
     #[ORM\Id]
@@ -13,16 +16,16 @@ class UserCoursProgress
     #[ORM\Column]
     private ?int $id = null;
 
-    #[ORM\OneToOne(cascade: ['persist', 'remove'])]
-    #[ORM\JoinColumn(nullable: false)]
+    #[ORM\ManyToOne(inversedBy: 'userCoursProgress')]
+    #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
     private ?User $user = null;
 
-    #[ORM\OneToOne(cascade: ['persist', 'remove'])]
-    #[ORM\JoinColumn(nullable: false)]
+    #[ORM\ManyToOne(inversedBy: 'progress')]
+    #[ORM\JoinColumn(nullable: false, onDelete: 'CASCADE')]
     private ?Cours $cours = null;
 
-    #[ORM\Column]
-    private ?int $progress = null;
+    #[ORM\Column(options: ['default' => 0])]
+    private int $progress = 0;
 
     public function getId(): ?int
     {
@@ -34,7 +37,7 @@ class UserCoursProgress
         return $this->user;
     }
 
-    public function setUser(User $user): static
+    public function setUser(?User $user): static
     {
         $this->user = $user;
 
@@ -46,21 +49,21 @@ class UserCoursProgress
         return $this->cours;
     }
 
-    public function setCours(Cours $cours): static
+    public function setCours(?Cours $cours): static
     {
         $this->cours = $cours;
 
         return $this;
     }
 
-    public function getProgress(): ?int
+    public function getProgress(): int
     {
         return $this->progress;
     }
 
     public function setProgress(int $progress): static
     {
-        $this->progress = $progress;
+        $this->progress = max(0, min(100, $progress));
 
         return $this;
     }

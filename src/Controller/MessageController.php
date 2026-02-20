@@ -4,12 +4,19 @@ namespace App\Controller;
 
 use App\Entity\Conversation;
 use App\Entity\MessageAttachment;
+use App\Entity\MessageAttachmentSummary;
 use App\Entity\Message;
 use App\Entity\User;
+use App\Repository\ConversationParticipantRepository;
 use App\Repository\MessageAttachmentRepository;
+use App\Repository\MessageAttachmentSummaryRepository;
 use App\Repository\MessageRepository;
 use App\Security\Voter\ConversationVoter;
+use App\Service\AttachmentSummaryAiService;
+use App\Service\AttachmentTextExtractor;
 use App\Service\ChatService;
+use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\File\UploadedFile;
@@ -26,7 +33,18 @@ class MessageController extends AbstractController
     public function __construct(
         private readonly MessageRepository $messageRepository,
         private readonly MessageAttachmentRepository $messageAttachmentRepository,
-        private readonly ChatService $chatService
+        private readonly ConversationParticipantRepository $conversationParticipantRepository,
+        private readonly MessageAttachmentSummaryRepository $messageAttachmentSummaryRepository,
+        private readonly AttachmentTextExtractor $attachmentTextExtractor,
+        private readonly AttachmentSummaryAiService $attachmentSummaryAiService,
+        private readonly EntityManagerInterface $em,
+        private readonly ChatService $chatService,
+        #[Autowire('%chat_audio_max_size_bytes%')]
+        private readonly int $chatAudioMaxSizeBytes,
+        #[Autowire('%chat_audio_max_duration_seconds%')]
+        private readonly int $chatAudioMaxDurationSeconds,
+        #[Autowire('%chat_audio_allowed_mime_types%')]
+        private readonly array $chatAudioAllowedMimeTypes
     ) {
     }
 
@@ -35,6 +53,18 @@ class MessageController extends AbstractController
     public function listMessages(Conversation $conversation, Request $request): JsonResponse
     {
         $this->denyAccessUnlessGranted(ConversationVoter::VIEW, $conversation);
+
+        $loadAll = filter_var($request->query->get('all', '1'), FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+        if ($loadAll === null || $loadAll) {
+            $messages = $this->messageRepository->findAllForConversation($conversation);
+            $data = array_map(fn (Message $message): array => $this->chatService->serializeMessage($message), $messages);
+
+            return $this->json([
+                'items' => $data,
+                'all' => true,
+                'count' => count($data),
+            ]);
+        }
 
         $page = max(1, (int) $request->query->get('page', 1));
         $perPage = max(1, min((int) $request->query->get('perPage', 30), 100));
@@ -46,6 +76,7 @@ class MessageController extends AbstractController
             'items' => $data,
             'page' => $page,
             'perPage' => $perPage,
+            'all' => false,
         ]);
     }
 
@@ -75,6 +106,74 @@ class MessageController extends AbstractController
         }
 
         return $this->json($this->chatService->serializeMessage($message), Response::HTTP_CREATED);
+    }
+
+    #[Route('/{id}/messages/audio', name: 'chat_message_audio_create', methods: ['POST'], requirements: ['id' => '\d+'])]
+    #[IsGranted('ROLE_USER')]
+    public function sendAudioMessage(Conversation $conversation, Request $request): JsonResponse
+    {
+        $this->assertCsrf($request);
+        $this->denyAccessUnlessGranted(ConversationVoter::MESSAGE, $conversation);
+        /** @var User $user */
+        $user = $this->getUser();
+
+        $audioFile = $this->extractAudioFile($request);
+        if (!$audioFile instanceof UploadedFile) {
+            return $this->json(['error' => 'Audio file is required.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        if (!$audioFile->isValid()) {
+            return $this->json(['error' => 'Invalid audio upload.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $size = (int) ($audioFile->getSize() ?? 0);
+        if ($size <= 0) {
+            return $this->json(['error' => 'Uploaded audio is empty.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        if ($size > $this->chatAudioMaxSizeBytes) {
+            return $this->json([
+                'error' => sprintf(
+                    'Audio exceeds maximum allowed size (%d MB).',
+                    (int) ceil($this->chatAudioMaxSizeBytes / 1024 / 1024)
+                ),
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $mimeType = strtolower(trim((string) $audioFile->getMimeType()));
+        if (!$this->isAllowedAudioMimeType($mimeType)) {
+            return $this->json([
+                'error' => sprintf('Audio type "%s" is not allowed.', $mimeType !== '' ? $mimeType : 'unknown'),
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        $durationSeconds = $this->normalizeAudioDurationSeconds($request);
+        if ($durationSeconds !== null && $durationSeconds > $this->chatAudioMaxDurationSeconds) {
+            return $this->json([
+                'error' => sprintf('Audio too long. Maximum duration is %d seconds.', $this->chatAudioMaxDurationSeconds),
+            ], Response::HTTP_BAD_REQUEST);
+        }
+
+        try {
+            $message = $this->chatService->createAudioMessage($conversation, $user, $audioFile, $durationSeconds);
+        } catch (\InvalidArgumentException $exception) {
+            return $this->json(['error' => $exception->getMessage()], Response::HTTP_BAD_REQUEST);
+        } catch (\RuntimeException) {
+            return $this->json(['error' => 'Unable to upload audio message.'], Response::HTTP_INTERNAL_SERVER_ERROR);
+        }
+
+        $serialized = $this->chatService->serializeMessage($message);
+        $firstAttachment = $serialized['attachments'][0] ?? null;
+
+        return $this->json([
+            'messageId' => $message->getId(),
+            'audioUrl' => is_array($firstAttachment) ? ($firstAttachment['url'] ?? null) : null,
+            'duration' => is_array($firstAttachment) ? ($firstAttachment['duration'] ?? $durationSeconds) : $durationSeconds,
+            'senderName' => $serialized['senderName'] ?? 'Utilisateur',
+            'createdAt' => $serialized['createdAt'] ?? null,
+            'conversationId' => $conversation->getId(),
+            'message' => $serialized,
+        ], Response::HTTP_CREATED);
     }
 
     #[Route('/messages/{id}', name: 'chat_message_update', methods: ['PUT'], requirements: ['id' => '\d+'])]
@@ -159,6 +258,114 @@ class MessageController extends AbstractController
         return $response;
     }
 
+    #[Route('/audio/{attachmentId}', name: 'chat_audio_stream', methods: ['GET'], requirements: ['attachmentId' => '\d+'])]
+    #[IsGranted('ROLE_USER')]
+    public function streamAudioAttachment(int $attachmentId, Request $request): Response
+    {
+        $attachment = $this->messageAttachmentRepository->find($attachmentId);
+        if (!$attachment instanceof MessageAttachment || !$this->isAudioAttachment($attachment)) {
+            throw $this->createNotFoundException('Audio attachment not found.');
+        }
+
+        $message = $attachment->getMessage();
+        $conversation = $message?->getConversation();
+        if (!$message instanceof Message || !$conversation instanceof Conversation) {
+            throw $this->createNotFoundException('Audio message not found.');
+        }
+
+        $this->denyAccessUnlessGranted(ConversationVoter::VIEW, $conversation);
+
+        $absolutePath = $this->chatService->resolveAttachmentAbsolutePath($attachment);
+        if (!is_file($absolutePath)) {
+            throw $this->createNotFoundException('Audio file missing.');
+        }
+
+        $download = $request->query->getBoolean('download');
+        $disposition = $download
+            ? ResponseHeaderBag::DISPOSITION_ATTACHMENT
+            : ResponseHeaderBag::DISPOSITION_INLINE;
+
+        $response = new BinaryFileResponse($absolutePath);
+        $response->setPrivate();
+        $response->headers->set('Content-Type', $attachment->getMimeType());
+        $response->headers->set('X-Content-Type-Options', 'nosniff');
+        $response->setContentDisposition($disposition, $attachment->getOriginalName());
+
+        return $response;
+    }
+
+    #[Route('/attachments/{attachmentId}/summarize', name: 'chat_attachment_summarize', methods: ['POST'], requirements: ['attachmentId' => '\d+'])]
+    #[IsGranted('ROLE_USER')]
+    public function summarizeAttachment(int $attachmentId, Request $request): JsonResponse
+    {
+        $this->assertCsrf($request);
+        /** @var User $user */
+        $user = $this->getUser();
+
+        $attachment = $this->messageAttachmentRepository->find($attachmentId);
+        if (!$attachment instanceof MessageAttachment) {
+            throw $this->createNotFoundException('Attachment not found.');
+        }
+
+        $message = $attachment->getMessage();
+        $conversation = $message?->getConversation();
+        if (!$message instanceof Message || !$conversation instanceof Conversation) {
+            throw $this->createNotFoundException('Attachment message not found.');
+        }
+
+        $membership = $this->conversationParticipantRepository->findActiveForConversationAndUser($conversation, $user);
+        if ($membership === null) {
+            throw $this->createAccessDeniedException('Access denied to this conversation attachment.');
+        }
+
+        $summary = $this->messageAttachmentSummaryRepository->findOneByAttachmentAndUser($attachment, $user);
+        if ($summary instanceof MessageAttachmentSummary && $summary->isDone() && $summary->getSummaryText() !== '') {
+            return $this->json([
+                'summaryText' => $summary->getSummaryText(),
+                'cached' => true,
+            ]);
+        }
+
+        if (!$summary instanceof MessageAttachmentSummary) {
+            $summary = (new MessageAttachmentSummary())
+                ->setAttachment($attachment)
+                ->setUser($user);
+            $this->em->persist($summary);
+        }
+
+        $summary
+            ->setStatus(MessageAttachmentSummary::STATUS_PENDING)
+            ->setSummaryText('')
+            ->setErrorMessage(null);
+        $this->em->flush();
+
+        try {
+            $absolutePath = $this->chatService->resolveAttachmentAbsolutePath($attachment);
+            $documentText = $this->attachmentTextExtractor->extractFromAttachment($attachment, $absolutePath);
+            $summaryText = $this->attachmentSummaryAiService->summarizeInFrench($documentText, $attachment->getOriginalName());
+
+            $summary
+                ->setSummaryText($summaryText)
+                ->setStatus(MessageAttachmentSummary::STATUS_DONE)
+                ->setErrorMessage(null);
+            $this->em->flush();
+        } catch (\Throwable $exception) {
+            $summary
+                ->setStatus(MessageAttachmentSummary::STATUS_ERROR)
+                ->setErrorMessage(mb_substr(trim($exception->getMessage()), 0, 500));
+            $this->em->flush();
+
+            return $this->json([
+                'error' => $this->getAttachmentSummaryErrorMessage($exception),
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
+        return $this->json([
+            'summaryText' => $summary->getSummaryText(),
+            'cached' => false,
+        ]);
+    }
+
     /**
      * @return UploadedFile[]
      */
@@ -183,6 +390,74 @@ class MessageController extends AbstractController
         }
 
         return $attachments;
+    }
+
+    private function extractAudioFile(Request $request): ?UploadedFile
+    {
+        $audio = $request->files->get('audio');
+        if ($audio instanceof UploadedFile) {
+            return $audio;
+        }
+
+        $legacy = $request->files->get('file');
+        if ($legacy instanceof UploadedFile) {
+            return $legacy;
+        }
+
+        return null;
+    }
+
+    private function normalizeAudioDurationSeconds(Request $request): ?int
+    {
+        $durationSeconds = $request->request->get('duration');
+        if ($durationSeconds !== null && $durationSeconds !== '') {
+            $normalized = filter_var($durationSeconds, FILTER_VALIDATE_INT);
+            return $normalized === false ? null : max(0, (int) $normalized);
+        }
+
+        $durationMs = $request->request->get('durationMs');
+        if ($durationMs === null || $durationMs === '') {
+            return null;
+        }
+
+        $normalizedMs = filter_var($durationMs, FILTER_VALIDATE_INT);
+        if ($normalizedMs === false) {
+            return null;
+        }
+
+        return (int) ceil(max(0, (int) $normalizedMs) / 1000);
+    }
+
+    private function isAllowedAudioMimeType(string $mimeType): bool
+    {
+        if ($mimeType === '') {
+            return false;
+        }
+
+        if (in_array($mimeType, $this->chatAudioAllowedMimeTypes, true)) {
+            return true;
+        }
+
+        return str_starts_with($mimeType, 'audio/');
+    }
+
+    private function isAudioAttachment(MessageAttachment $attachment): bool
+    {
+        if ($attachment->getType() === 'audio') {
+            return true;
+        }
+
+        return str_starts_with(strtolower($attachment->getMimeType()), 'audio/');
+    }
+
+    private function getAttachmentSummaryErrorMessage(\Throwable $exception): string
+    {
+        $message = trim($exception->getMessage());
+        if ($message === '') {
+            return 'Impossible de generer le resume du fichier.';
+        }
+
+        return mb_substr($message, 0, 240);
     }
 
     private function assertCsrf(Request $request): void

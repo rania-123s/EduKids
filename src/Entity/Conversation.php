@@ -43,6 +43,9 @@ class Conversation
     #[ORM\Column(length: 80, nullable: true)]
     private ?string $privateKey = null;
 
+    #[ORM\Column(type: 'datetime_immutable', nullable: true)]
+    private ?\DateTimeImmutable $lastAutoReplyAt = null;
+
     /** @var Collection<int, Message> */
     #[ORM\OneToMany(mappedBy: 'conversation', targetEntity: Message::class, cascade: ['persist', 'remove'], orphanRemoval: true)]
     #[ORM\OrderBy(['createdAt' => 'ASC'])]
@@ -126,6 +129,17 @@ class Conversation
     public function setPrivateKey(?string $privateKey): static
     {
         $this->privateKey = $privateKey;
+        return $this;
+    }
+
+    public function getLastAutoReplyAt(): ?\DateTimeImmutable
+    {
+        return $this->lastAutoReplyAt;
+    }
+
+    public function setLastAutoReplyAt(?\DateTimeImmutable $lastAutoReplyAt): static
+    {
+        $this->lastAutoReplyAt = $lastAutoReplyAt;
         return $this;
     }
 

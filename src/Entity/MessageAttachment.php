@@ -11,6 +11,7 @@ use Doctrine\ORM\Mapping as ORM;
     indexes: [
         new ORM\Index(name: 'idx_message_attachment_message', columns: ['message_id']),
         new ORM\Index(name: 'idx_message_attachment_created_at', columns: ['created_at']),
+        new ORM\Index(name: 'idx_message_attachment_type', columns: ['type']),
     ]
 )]
 #[ORM\HasLifecycleCallbacks]
@@ -42,6 +43,12 @@ class MessageAttachment
 
     #[ORM\Column(options: ['default' => false])]
     private bool $isImage = false;
+
+    #[ORM\Column(length: 20, options: ['default' => 'file'])]
+    private string $type = 'file';
+
+    #[ORM\Column(nullable: true)]
+    private ?int $duration = null;
 
     #[ORM\Column(type: 'datetime_immutable')]
     private ?\DateTimeImmutable $createdAt = null;
@@ -141,9 +148,32 @@ class MessageAttachment
         return $this;
     }
 
+    public function getType(): string
+    {
+        return $this->type;
+    }
+
+    public function setType(string $type): static
+    {
+        $this->type = $type;
+
+        return $this;
+    }
+
+    public function getDuration(): ?int
+    {
+        return $this->duration;
+    }
+
+    public function setDuration(?int $duration): static
+    {
+        $this->duration = $duration !== null ? max(0, $duration) : null;
+
+        return $this;
+    }
+
     public function getCreatedAt(): ?\DateTimeImmutable
     {
         return $this->createdAt;
     }
 }
-

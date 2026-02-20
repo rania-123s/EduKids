@@ -182,6 +182,7 @@ class ConversationController extends AbstractController
         $actor = $this->getUser();
 
         $this->chatService->leaveGroup($conversation, $actor);
+        $this->chatService->publishTypingEvent($conversation, $actor, false);
 
         return $this->json([
             'ok' => true,
@@ -244,6 +245,44 @@ class ConversationController extends AbstractController
         ]);
     }
 
+    #[Route('/{id}/hide', name: 'chat_conversation_hide', methods: ['POST'], requirements: ['id' => '\d+'])]
+    #[IsGranted('ROLE_USER')]
+    public function hideConversation(Conversation $conversation, Request $request): JsonResponse
+    {
+        $this->assertCsrf($request);
+        $this->denyAccessUnlessGranted(ConversationVoter::VIEW, $conversation);
+        /** @var User $actor */
+        $actor = $this->getUser();
+
+        $this->chatService->hideConversationForUser($conversation, $actor);
+        $this->chatService->publishTypingEvent($conversation, $actor, false);
+
+        return $this->json([
+            'ok' => true,
+            'conversationId' => $conversation->getId(),
+        ]);
+    }
+
+    #[Route('/{id}/typing', name: 'chat_conversation_typing', methods: ['POST'], requirements: ['id' => '\d+'])]
+    #[IsGranted('ROLE_USER')]
+    public function typing(Conversation $conversation, Request $request): JsonResponse
+    {
+        $this->assertCsrf($request);
+        $this->denyAccessUnlessGranted(ConversationVoter::MESSAGE, $conversation);
+        /** @var User $actor */
+        $actor = $this->getUser();
+
+        $payload = $this->getPayload($request);
+        $typing = filter_var($payload['typing'] ?? null, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE);
+        if (!is_bool($typing)) {
+            return $this->json(['error' => 'typing boolean is required.'], Response::HTTP_BAD_REQUEST);
+        }
+
+        $this->chatService->publishTypingEvent($conversation, $actor, $typing);
+
+        return $this->json(['ok' => true]);
+    }
+
     #[Route('/{id}/members/remove', name: 'chat_group_members_remove', methods: ['POST'], requirements: ['id' => '\d+'])]
     #[IsGranted('ROLE_USER')]
     public function removeMember(Conversation $conversation, Request $request): JsonResponse
@@ -281,8 +320,11 @@ class ConversationController extends AbstractController
     {
         /** @var User $viewer */
         $viewer = $this->getUser();
+        $template = $this->isGranted('ROLE_ADMIN')
+            ? 'chat/admin_chat.html.twig'
+            : 'chat/chat_parent.html.twig';
 
-        return $this->render('chat/chat_parent.html.twig', [
+        return $this->render($template, [
             'initial_conversation_id' => $conversation?->getId(),
             'initial_conversation_title' => $conversation ? $this->getConversationTitle($conversation, $viewer) : null,
             'websocket_url' => $this->chatWebSocketUrl,
@@ -362,6 +404,25 @@ class ConversationController extends AbstractController
         $content = preg_replace('/\s+/', ' ', trim((string) $lastMessage->getContent()));
         if (is_string($content) && $content !== '') {
             return $this->truncatePreview($content, 55);
+        }
+
+        $hasAudioAttachment = $lastMessage->getType() === 'audio';
+        if (!$hasAudioAttachment) {
+            foreach ($lastMessage->getAttachments() as $attachment) {
+                if ($attachment->getType() === 'audio' || str_starts_with($attachment->getMimeType(), 'audio/')) {
+                    $hasAudioAttachment = true;
+                    break;
+                }
+            }
+        }
+
+        if ($hasAudioAttachment) {
+            $sender = $lastMessage->getSender();
+            if ($sender !== null && $sender->getId() === $viewer->getId()) {
+                return 'Message vocal';
+            }
+
+            return sprintf('%s a envoye un message vocal', $this->getDisplayName($sender));
         }
 
         $hasAttachment = $lastMessage->getType() === 'image'

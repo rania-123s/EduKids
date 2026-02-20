@@ -6,9 +6,11 @@ use App\Entity\Conversation;
 use App\Entity\ConversationParticipant;
 use App\Entity\Message;
 use App\Entity\MessageAttachment;
+use App\Entity\Notification;
 use App\Entity\User;
 use App\Repository\ConversationParticipantRepository;
 use App\Repository\ConversationRepository;
+use App\Repository\UserRepository;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
@@ -26,6 +28,7 @@ class ChatService
         private readonly EntityManagerInterface $em,
         private readonly ConversationRepository $conversationRepository,
         private readonly ConversationParticipantRepository $participantRepository,
+        private readonly UserRepository $userRepository,
         private readonly HubInterface $hub,
         private readonly HttpClientInterface $httpClient,
         private readonly UrlGeneratorInterface $urlGenerator,
@@ -41,6 +44,10 @@ class ChatService
         private readonly int $chatUploadMaxFilesPerMessage,
         #[Autowire('%chat_upload_allowed_mime_types%')]
         private readonly array $chatUploadAllowedMimeTypes,
+        #[Autowire('%chat_auto_reply_admin_email%')]
+        private readonly string $chatAutoReplyAdminEmail,
+        #[Autowire('%chat_auto_reply_cooldown_minutes%')]
+        private readonly int $chatAutoReplyCooldownMinutes,
         #[Autowire('%env(CHAT_WS_BRIDGE_URL)%')]
         private readonly string $chatWebSocketBridgeUrl,
         #[Autowire('%env(CHAT_WS_BRIDGE_SECRET)%')]
@@ -160,6 +167,21 @@ class ChatService
         $this->publishConversationUpdate($conversation);
     }
 
+    public function hideConversationForUser(Conversation $conversation, User $actor): void
+    {
+        $membership = $this->participantRepository->findForConversationAndUser($conversation, $actor);
+        if (!$membership instanceof ConversationParticipant || $membership->getDeletedAt() !== null) {
+            throw new \RuntimeException('You are not a member of this conversation.');
+        }
+
+        if ($membership->getHiddenAt() !== null) {
+            return;
+        }
+
+        $membership->setHiddenAt(new \DateTimeImmutable());
+        $this->em->flush();
+    }
+
     public function addMemberToGroup(Conversation $conversation, User $member): void
     {
         if (!$conversation->isGroup()) {
@@ -174,6 +196,7 @@ class ChatService
 
             $existing
                 ->setDeletedAt(null)
+                ->setHiddenAt(null)
                 ->setRole(ConversationParticipant::ROLE_MEMBER);
         } else {
             $this->attachParticipant($conversation, $member, ConversationParticipant::ROLE_MEMBER);
@@ -243,7 +266,9 @@ class ChatService
                 ->setStoragePath($storedAttachment['storagePath'])
                 ->setMimeType($storedAttachment['mimeType'])
                 ->setSize($storedAttachment['size'])
-                ->setIsImage($storedAttachment['isImage']);
+                ->setIsImage($storedAttachment['isImage'])
+                ->setType($storedAttachment['type'])
+                ->setDuration($storedAttachment['duration']);
 
             $message->addAttachment($attachment);
         }
@@ -252,10 +277,53 @@ class ChatService
             $message->setType('image');
         }
 
+        $this->restoreHiddenParticipantsOnNewMessage($conversation, $sender);
         $conversation->setUpdatedAt(new \DateTimeImmutable());
         $this->em->persist($message);
+        $this->createMessageNotifications($conversation, $sender, $message);
         $this->em->flush();
 
+        $this->publishTypingEvent($conversation, $sender, false);
+        $this->publishMessageEvent('message.created', $conversation, $message);
+        $this->publishConversationUpdate($conversation);
+        $this->maybeSendAutoReply($conversation, $sender, $content);
+
+        return $message;
+    }
+
+    public function createAudioMessage(
+        Conversation $conversation,
+        User $sender,
+        UploadedFile $file,
+        ?int $duration = null
+    ): Message {
+        $storedAttachment = $this->storeUploadedFile($file, 'audio');
+        $attachment = (new MessageAttachment())
+            ->setOriginalName($storedAttachment['originalName'])
+            ->setStoredName($storedAttachment['storedName'])
+            ->setStoragePath($storedAttachment['storagePath'])
+            ->setMimeType($storedAttachment['mimeType'])
+            ->setSize($storedAttachment['size'])
+            ->setIsImage(false)
+            ->setType('audio')
+            ->setDuration($duration);
+
+        $message = (new Message())
+            ->setConversation($conversation)
+            ->setSender($sender)
+            ->setContent('')
+            ->setStatus('sent')
+            ->setType('audio')
+            ->setFilePath(null)
+            ->addAttachment($attachment);
+
+        $this->restoreHiddenParticipantsOnNewMessage($conversation, $sender);
+        $conversation->setUpdatedAt(new \DateTimeImmutable());
+        $this->em->persist($message);
+        $this->createMessageNotifications($conversation, $sender, $message);
+        $this->em->flush();
+
+        $this->publishTypingEvent($conversation, $sender, false);
         $this->publishMessageEvent('message.created', $conversation, $message);
         $this->publishConversationUpdate($conversation);
 
@@ -295,6 +363,299 @@ class ChatService
             $this->publishMessageEvent('message.deleted', $conversation, $message);
             $this->publishConversationUpdate($conversation);
         }
+    }
+
+    public function publishTypingEvent(Conversation $conversation, User $actor, bool $typing): void
+    {
+        $actorId = $actor->getId();
+        if ($actorId === null) {
+            return;
+        }
+
+        $event = [
+            'type' => 'conversation.typing',
+            'conversationId' => $conversation->getId(),
+            'typing' => $typing,
+            'userId' => $actorId,
+            'userName' => $this->buildDisplayName($actor),
+        ];
+
+        $payload = json_encode($event, JSON_UNESCAPED_SLASHES);
+        if (!is_string($payload)) {
+            return;
+        }
+
+        $recipientUserIds = [];
+        foreach ($conversation->getParticipants() as $participant) {
+            if ($participant->getDeletedAt() !== null || $participant->getHiddenAt() !== null) {
+                continue;
+            }
+
+            $user = $participant->getUser();
+            if ($user === null) {
+                continue;
+            }
+
+            $recipientUserIds[] = (int) $user->getId();
+            $this->safePublish($this->getUserTopic($user), $payload);
+        }
+
+        $this->safePublishWebSocketBridge($event, $recipientUserIds);
+    }
+
+    private function maybeSendAutoReply(Conversation $conversation, User $sender, string $content): void
+    {
+        if (trim($content) === '') {
+            return;
+        }
+
+        $admin = $this->resolveAutoReplyAdmin();
+        if (!$admin instanceof User) {
+            return;
+        }
+
+        $senderId = $sender->getId();
+        $adminId = $admin->getId();
+        if ($senderId === null || $adminId === null) {
+            return;
+        }
+
+        // Never auto-reply to an admin message to avoid loops.
+        if ($senderId === $adminId || in_array('ROLE_ADMIN', $sender->getRoles(), true)) {
+            return;
+        }
+
+        $replyTemplate = $this->resolveAutoReplyTemplate($content);
+        if ($replyTemplate === null) {
+            return;
+        }
+
+        $cooldownMinutes = max(0, $this->chatAutoReplyCooldownMinutes);
+        $now = new \DateTimeImmutable();
+        $lastAutoReplyAt = $conversation->getLastAutoReplyAt();
+        if ($cooldownMinutes > 0 && $lastAutoReplyAt instanceof \DateTimeImmutable) {
+            $nextAllowedAt = $lastAutoReplyAt->modify(sprintf('+%d minutes', $cooldownMinutes));
+            if ($nextAllowedAt instanceof \DateTimeImmutable && $now < $nextAllowedAt) {
+                return;
+            }
+        }
+
+        $message = (new Message())
+            ->setConversation($conversation)
+            ->setSender($admin)
+            ->setContent($this->personalizeAutoReplyTemplate($replyTemplate, $sender))
+            ->setStatus('sent')
+            ->setType('text')
+            ->setFilePath(null);
+
+        $conversation
+            ->setLastAutoReplyAt($now)
+            ->setUpdatedAt($now);
+
+        $this->em->persist($message);
+        $this->createMessageNotifications($conversation, $admin, $message);
+        $this->em->flush();
+
+        $this->publishMessageEvent('message.created', $conversation, $message);
+        $this->publishConversationUpdate($conversation);
+    }
+
+    private function resolveAutoReplyAdmin(): ?User
+    {
+        $admin = $this->userRepository->findOneAdmin();
+        if ($admin instanceof User) {
+            return $admin;
+        }
+
+        $email = trim($this->chatAutoReplyAdminEmail);
+        if ($email === '') {
+            return null;
+        }
+
+        $fallbackAdmin = $this->userRepository->findOneBy(['email' => $email]);
+        return $fallbackAdmin instanceof User ? $fallbackAdmin : null;
+    }
+
+    private function resolveAutoReplyTemplate(string $content): ?string
+    {
+        $normalizedContent = $this->normalizeAutoReplyText($content);
+        if ($normalizedContent === '') {
+            return null;
+        }
+
+        foreach ($this->getAutoReplyRules() as $rule) {
+            if (!in_array($normalizedContent, $rule['triggers'], true)) {
+                continue;
+            }
+
+            return $this->pickRandomResponse($rule['responses']);
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array<int, array{triggers: array<int, string>, responses: array<int, string>}>
+     */
+    private function getAutoReplyRules(): array
+    {
+        $rules = [
+            // 8) Version professionnelle
+            [
+                'triggers' => ['bonjour'],
+                'responses' => [
+                    'Bonjour {Nom}, merci de nous avoir contactés. Comment puis-je vous assister aujourd’hui ?',
+                ],
+            ],
+            // 9) Version moderne / conviviale
+            [
+                'triggers' => ['bjr'],
+                'responses' => [
+                    'Bonjour {Nom} 😄 Que puis-je faire pour vous ?',
+                ],
+            ],
+            // 10) Version courte automatique
+            [
+                'triggers' => ['salut'],
+                'responses' => [
+                    'Bonjour {Nom} 👋',
+                ],
+            ],
+            // 1) Salutations simples
+            [
+                'triggers' => ['bjr', 'slt', 'coucou', 'hey', 'cc', 'yo', 're bonjour', 'bonjour à tous', 'bonjour admin', 'salut admin'],
+                'responses' => [
+                    'Bonjour {Nom} 👋',
+                    'Bonjour {Nom}, comment puis-je vous aider ?',
+                    'Salut {Nom} 😄',
+                    'Bonjour {Nom}, bienvenue !',
+                    'Bonjour {Nom}, je suis disponible pour vous aider.',
+                ],
+            ],
+            // 2) Message de politesse
+            [
+                'triggers' => ['comment ça va ?', 'vous allez bien ?', 'ça va admin ?', 'ça va ?', 'tout va bien ?'],
+                'responses' => [
+                    'Merci {Nom}, je vais très bien 😊',
+                    'Je vais bien {Nom}, comment puis-je vous aider ?',
+                    'Merci pour votre message {Nom}.',
+                ],
+            ],
+            // 3) Demande d’aide
+            [
+                'triggers' => ['aide', 'help', 'besoin d’aide', 'pouvez-vous m’aider ?', 'j’ai un problème', 'problème'],
+                'responses' => [
+                    'Bien sûr {Nom}, expliquez-moi votre problème.',
+                    'Je suis là pour vous aider {Nom}.',
+                    'Pouvez-vous me donner plus de détails ?',
+                ],
+            ],
+            // 4) Remerciements
+            [
+                'triggers' => ['merci', 'merci beaucoup', 'thanks', 'merci admin', 'c’est bon merci'],
+                'responses' => [
+                    'Avec plaisir {Nom} 😊',
+                    'Je vous en prie {Nom}.',
+                    'Toujours à votre service 👌',
+                ],
+            ],
+            // 5) Messages courts familiers
+            [
+                'triggers' => ['ok', 'd’accord', 'c bon', 'parfait', 'nickel'],
+                'responses' => [
+                    'Très bien {Nom} 👍',
+                    'Parfait {Nom}.',
+                    'D’accord, n’hésitez pas si besoin.',
+                ],
+            ],
+            // 6) Messages du soir / matin
+            [
+                'triggers' => ['bon matin', 'bon après-midi', 'bonne soirée', 'bonne nuit'],
+                'responses' => [
+                    'Bon après-midi {Nom} ☀️',
+                    'Bonne soirée {Nom} 🌙',
+                    'Bonne nuit {Nom}, à demain !',
+                ],
+            ],
+            // 7) Messages en groupe
+            [
+                'triggers' => ['bonjour tout le monde', 'salut à tous', 'hello groupe'],
+                'responses' => [
+                    'Bonjour {Nom} et bienvenue à tous 👋',
+                    'Salut {Nom} 😊',
+                ],
+            ],
+        ];
+
+        foreach ($rules as &$rule) {
+            $rule['triggers'] = array_values(array_filter(
+                array_map(fn (string $trigger): string => $this->normalizeAutoReplyText($trigger), $rule['triggers']),
+                static fn (string $trigger): bool => $trigger !== ''
+            ));
+        }
+        unset($rule);
+
+        return $rules;
+    }
+
+    /**
+     * @param string[] $responses
+     */
+    private function pickRandomResponse(array $responses): ?string
+    {
+        $available = array_values(array_filter(
+            array_map(static fn (string $response): string => trim($response), $responses),
+            static fn (string $response): bool => $response !== ''
+        ));
+
+        if ($available === []) {
+            return null;
+        }
+
+        if (count($available) === 1) {
+            return $available[0];
+        }
+
+        return $available[random_int(0, count($available) - 1)];
+    }
+
+    private function personalizeAutoReplyTemplate(string $template, User $recipient): string
+    {
+        $firstName = trim((string) ($recipient->getFirstName() ?? ''));
+        $lastName = trim((string) ($recipient->getLastName() ?? ''));
+        $email = trim((string) ($recipient->getEmail() ?? ''));
+        $emailLocalPart = $email !== '' ? explode('@', $email)[0] : '';
+        $fallbackName = $firstName !== ''
+            ? $firstName
+            : ($lastName !== '' ? $lastName : ($emailLocalPart !== '' ? $emailLocalPart : 'Utilisateur'));
+
+        $nameForNom = $lastName !== '' ? $lastName : $fallbackName;
+        $nameForPrenom = $firstName !== '' ? $firstName : $fallbackName;
+
+        return strtr($template, [
+            '{Nom}' => $nameForNom,
+            '{Prénom}' => $nameForPrenom,
+            '{Prenom}' => $nameForPrenom,
+        ]);
+    }
+
+    private function normalizeAutoReplyText(string $text): string
+    {
+        $normalized = mb_strtolower(trim($text));
+        if ($normalized === '') {
+            return '';
+        }
+
+        $transliterated = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $normalized);
+        if (is_string($transliterated) && trim($transliterated) !== '') {
+            $normalized = strtolower($transliterated);
+        }
+
+        $normalized = str_replace(['’', '\''], ' ', $normalized);
+        $normalized = preg_replace('/[^a-z0-9\s]/', ' ', $normalized) ?? $normalized;
+        $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+
+        return trim($normalized);
     }
 
     public function serializeMessage(Message $message): array
@@ -348,6 +709,67 @@ class ChatService
         $members[0]->setRole(ConversationParticipant::ROLE_ADMIN);
     }
 
+    private function restoreHiddenParticipantsOnNewMessage(Conversation $conversation, User $sender): void
+    {
+        $senderId = $sender->getId();
+        foreach ($this->participantRepository->findHiddenActiveMembers($conversation) as $participant) {
+            $participantUser = $participant->getUser();
+            if ($participantUser === null) {
+                continue;
+            }
+
+            if ($senderId !== null && $participantUser->getId() === $senderId) {
+                continue;
+            }
+
+            $participant->setHiddenAt(null);
+        }
+    }
+
+    private function createMessageNotifications(Conversation $conversation, User $sender, Message $message): void
+    {
+        $conversationId = $conversation->getId();
+        $senderId = $sender->getId();
+        if ($conversationId === null || $senderId === null) {
+            return;
+        }
+
+        $notificationText = $this->buildMessageNotificationText($sender, $message);
+        foreach ($conversation->getParticipants() as $participant) {
+            if ($participant->getDeletedAt() !== null || $participant->getHiddenAt() !== null) {
+                continue;
+            }
+
+            $receiver = $participant->getUser();
+            if ($receiver === null || $receiver->getId() === $senderId) {
+                continue;
+            }
+
+            $notification = (new Notification())
+                ->setReceiver($receiver)
+                ->setSender($sender)
+                ->setType(Notification::TYPE_MESSAGE)
+                ->setConversationId($conversationId)
+                ->setText($notificationText)
+                ->setIsRead(false);
+
+            $this->em->persist($notification);
+        }
+    }
+
+    private function buildMessageNotificationText(User $sender, Message $message): string
+    {
+        $senderName = $this->buildDisplayName($sender);
+        $hasAttachment = !$message->getAttachments()->isEmpty()
+            || ($message->getFilePath() !== null && trim($message->getFilePath()) !== '');
+
+        if ($hasAttachment) {
+            return sprintf('%s a envoyé une pièce jointe', $senderName);
+        }
+
+        return sprintf('%s a envoyé un message', $senderName);
+    }
+
     private function attachParticipant(Conversation $conversation, User $user, string $role): ConversationParticipant
     {
         $participant = (new ConversationParticipant())
@@ -367,6 +789,7 @@ class ChatService
         if ($existing instanceof ConversationParticipant) {
             $existing
                 ->setDeletedAt(null)
+                ->setHiddenAt(null)
                 ->setRole($role);
 
             return;
@@ -472,13 +895,19 @@ class ChatService
                 continue;
             }
 
-            $url = $this->urlGenerator->generate('chat_attachment_download', ['attachmentId' => $attachmentId]);
+            $isAudio = $attachment->getType() === 'audio' || str_starts_with($attachment->getMimeType(), 'audio/');
+            $url = $this->urlGenerator->generate(
+                $isAudio ? 'chat_audio_stream' : 'chat_attachment_download',
+                ['attachmentId' => $attachmentId]
+            );
             $items[] = [
                 'id' => $attachmentId,
                 'name' => $attachment->getOriginalName(),
                 'mimeType' => $attachment->getMimeType(),
                 'size' => $attachment->getSize(),
                 'isImage' => $attachment->isImage(),
+                'type' => $attachment->getType(),
+                'duration' => $attachment->getDuration(),
                 'url' => $url,
                 'downloadUrl' => $url . '?download=1',
             ];
@@ -500,6 +929,8 @@ class ChatService
                 'mimeType' => $isImage ? 'image/*' : 'application/octet-stream',
                 'size' => 0,
                 'isImage' => $isImage,
+                'type' => $isImage ? 'image' : 'file',
+                'duration' => null,
                 'url' => $legacyPath,
                 'downloadUrl' => $legacyPath,
             ]];
@@ -515,15 +946,28 @@ class ChatService
     {
         if ($attachments !== []) {
             $containsOnlyImages = true;
+            $containsOnlyAudio = true;
             foreach ($attachments as $attachment) {
                 if (!($attachment['isImage'] ?? false)) {
                     $containsOnlyImages = false;
-                    break;
+                }
+
+                $attachmentType = (string) ($attachment['type'] ?? '');
+                $mimeType = (string) ($attachment['mimeType'] ?? '');
+                $isAudio = $attachmentType === 'audio' || str_starts_with($mimeType, 'audio/');
+                if (!$isAudio) {
+                    $containsOnlyAudio = false;
                 }
             }
 
-            if ($containsOnlyImages && trim((string) $message->getContent()) === '') {
-                return 'image';
+            if (trim((string) $message->getContent()) === '') {
+                if ($containsOnlyImages) {
+                    return 'image';
+                }
+
+                if ($containsOnlyAudio) {
+                    return 'audio';
+                }
             }
 
             return 'file';
@@ -533,9 +977,18 @@ class ChatService
     }
 
     /**
-     * @return array{originalName:string,storedName:string,storagePath:string,mimeType:string,size:int,isImage:bool}
+     * @return array{
+     *     originalName:string,
+     *     storedName:string,
+     *     storagePath:string,
+     *     mimeType:string,
+     *     size:int,
+     *     isImage:bool,
+     *     type:string,
+     *     duration:null
+     * }
      */
-    private function storeUploadedFile(UploadedFile $file): array
+    private function storeUploadedFile(UploadedFile $file, string $subDirectory = ''): array
     {
         if (!$file->isValid()) {
             throw new \InvalidArgumentException('Invalid uploaded file.');
@@ -559,6 +1012,10 @@ class ChatService
         }
 
         $targetDir = rtrim($this->chatUploadDir, '/\\');
+        $normalizedSubDirectory = trim($subDirectory, '/\\');
+        if ($normalizedSubDirectory !== '') {
+            $targetDir .= DIRECTORY_SEPARATOR . $normalizedSubDirectory;
+        }
         if (!is_dir($targetDir) && !mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
             throw new \RuntimeException('Unable to create chat upload directory.');
         }
@@ -572,6 +1029,9 @@ class ChatService
         }
 
         $publicPrefix = rtrim($this->chatUploadPublicPrefix, '/');
+        if ($normalizedSubDirectory !== '') {
+            $publicPrefix .= '/' . str_replace('\\', '/', $normalizedSubDirectory);
+        }
         $storagePath = $publicPrefix . '/' . $storedName;
 
         return [
@@ -583,6 +1043,8 @@ class ChatService
             'mimeType' => $mimeType,
             'size' => $size,
             'isImage' => str_starts_with($mimeType, 'image/'),
+            'type' => str_starts_with($mimeType, 'image/') ? 'image' : 'file',
+            'duration' => null,
         ];
     }
 
@@ -600,6 +1062,10 @@ class ChatService
             'application/vnd.ms-excel' => 'xls',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
             'text/plain' => 'txt',
+            'audio/webm', 'video/webm' => 'webm',
+            'audio/ogg' => 'ogg',
+            'audio/mp4' => 'm4a',
+            'audio/mpeg' => 'mp3',
             default => 'bin',
         };
     }
@@ -621,7 +1087,7 @@ class ChatService
         $recipientUserIds = [];
 
         foreach ($conversation->getParticipants() as $participant) {
-            if ($participant->getDeletedAt() !== null) {
+            if ($participant->getDeletedAt() !== null || $participant->getHiddenAt() !== null) {
                 continue;
             }
 
@@ -650,7 +1116,7 @@ class ChatService
 
         $recipientUserIds = [];
         foreach ($conversation->getParticipants() as $participant) {
-            if ($participant->getDeletedAt() !== null) {
+            if ($participant->getDeletedAt() !== null || $participant->getHiddenAt() !== null) {
                 continue;
             }
 

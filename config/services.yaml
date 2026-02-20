@@ -21,6 +21,21 @@ parameters:
         - 'application/vnd.ms-excel'
         - 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         - 'text/plain'
+        - 'audio/webm'
+        - 'audio/ogg'
+        - 'audio/mp4'
+        - 'audio/mpeg'
+        - 'video/webm'
+    chat_audio_max_size_bytes: 7340032
+    chat_audio_max_duration_seconds: 120
+    chat_audio_allowed_mime_types:
+        - 'audio/webm'
+        - 'audio/ogg'
+        - 'audio/mp4'
+        - 'audio/mpeg'
+        - 'video/webm'
+    chat_auto_reply_admin_email: 'admin@site.com'
+    chat_auto_reply_cooldown_minutes: 0
 
 services:
     # default configuration for services in *this* file

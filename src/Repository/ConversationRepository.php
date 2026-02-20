@@ -74,7 +74,7 @@ class ConversationRepository extends ServiceEntityRepository
             ->where('m2.conversation = c');
 
         $qb = $this->createQueryBuilder('c')
-            ->innerJoin('c.participants', 'cp', 'WITH', 'cp.user = :user AND cp.deletedAt IS NULL')
+            ->innerJoin('c.participants', 'cp', 'WITH', 'cp.user = :user AND cp.deletedAt IS NULL AND cp.hiddenAt IS NULL')
             ->leftJoin('c.messages', 'lm', 'WITH', 'lm.id = (' . $lastMessageSubQuery->getDQL() . ')')
             ->addSelect('cp', 'lm')
             ->distinct()

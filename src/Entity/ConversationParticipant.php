@@ -12,6 +12,7 @@ use Doctrine\ORM\Mapping as ORM;
         new ORM\Index(name: 'idx_cp_conversation', columns: ['conversation_id']),
         new ORM\Index(name: 'idx_cp_user', columns: ['user_id']),
         new ORM\Index(name: 'idx_cp_deleted_at', columns: ['deleted_at']),
+        new ORM\Index(name: 'idx_cp_hidden_at', columns: ['hidden_at']),
         new ORM\Index(name: 'idx_cp_role', columns: ['role']),
     ],
     uniqueConstraints: [
@@ -42,6 +43,9 @@ class ConversationParticipant
 
     #[ORM\Column(type: 'datetime_immutable', nullable: true)]
     private ?\DateTimeImmutable $deletedAt = null;
+
+    #[ORM\Column(type: 'datetime_immutable', nullable: true)]
+    private ?\DateTimeImmutable $hiddenAt = null;
 
     #[ORM\Column(type: 'datetime_immutable', nullable: true)]
     private ?\DateTimeImmutable $lastReadAt = null;
@@ -109,6 +113,17 @@ class ConversationParticipant
     public function setDeletedAt(?\DateTimeImmutable $deletedAt): static
     {
         $this->deletedAt = $deletedAt;
+        return $this;
+    }
+
+    public function getHiddenAt(): ?\DateTimeImmutable
+    {
+        return $this->hiddenAt;
+    }
+
+    public function setHiddenAt(?\DateTimeImmutable $hiddenAt): static
+    {
+        $this->hiddenAt = $hiddenAt;
         return $this;
     }
 

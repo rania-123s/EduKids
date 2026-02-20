@@ -33,6 +33,7 @@ class ConversationParticipantRepository extends ServiceEntityRepository
             ->andWhere('cp.conversation = :conversation')
             ->andWhere('cp.user = :user')
             ->andWhere('cp.deletedAt IS NULL')
+            ->andWhere('cp.hiddenAt IS NULL')
             ->setParameter('conversation', $conversation)
             ->setParameter('user', $user)
             ->setMaxResults(1)
@@ -68,5 +69,18 @@ class ConversationParticipantRepository extends ServiceEntityRepository
             ->getQuery()
             ->getResult();
     }
-}
 
+    /**
+     * @return ConversationParticipant[]
+     */
+    public function findHiddenActiveMembers(Conversation $conversation): array
+    {
+        return $this->createQueryBuilder('cp')
+            ->andWhere('cp.conversation = :conversation')
+            ->andWhere('cp.deletedAt IS NULL')
+            ->andWhere('cp.hiddenAt IS NOT NULL')
+            ->setParameter('conversation', $conversation)
+            ->getQuery()
+            ->getResult();
+    }
+}

@@ -420,8 +420,13 @@ class ChatService
             return;
         }
 
-        // Never auto-reply to an admin message to avoid loops.
-        if ($senderId === $adminId || in_array('ROLE_ADMIN', $sender->getRoles(), true)) {
+        // Auto-reply is enabled only for admin senders.
+        if (!in_array('ROLE_ADMIN', $sender->getRoles(), true)) {
+            return;
+        }
+
+        // Never auto-reply to messages sent by the auto-reply account to avoid loops.
+        if ($senderId === $adminId) {
             return;
         }
 
@@ -484,14 +489,31 @@ class ChatService
         }
 
         foreach ($this->getAutoReplyRules() as $rule) {
-            if (!in_array($normalizedContent, $rule['triggers'], true)) {
-                continue;
-            }
+            foreach ($rule['triggers'] as $trigger) {
+                if (!$this->autoReplyTriggerMatches($normalizedContent, $trigger)) {
+                    continue;
+                }
 
-            return $this->pickRandomResponse($rule['responses']);
+                return $this->pickRandomResponse($rule['responses']);
+            }
         }
 
         return null;
+    }
+
+    private function autoReplyTriggerMatches(string $normalizedContent, string $trigger): bool
+    {
+        $normalizedTrigger = trim($trigger);
+        if ($normalizedContent === '' || $normalizedTrigger === '') {
+            return false;
+        }
+
+        if ($normalizedContent === $normalizedTrigger) {
+            return true;
+        }
+
+        $pattern = '/(^|\s)' . preg_quote($normalizedTrigger, '/') . '(\s|$)/';
+        return preg_match($pattern, $normalizedContent) === 1;
     }
 
     /**

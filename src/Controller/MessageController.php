@@ -12,7 +12,7 @@ use App\Repository\MessageAttachmentRepository;
 use App\Repository\MessageAttachmentSummaryRepository;
 use App\Repository\MessageRepository;
 use App\Security\Voter\ConversationVoter;
-use App\Service\AttachmentSummaryAiService;
+use App\Service\AiService;
 use App\Service\AttachmentTextExtractor;
 use App\Service\ChatService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -36,7 +36,7 @@ class MessageController extends AbstractController
         private readonly ConversationParticipantRepository $conversationParticipantRepository,
         private readonly MessageAttachmentSummaryRepository $messageAttachmentSummaryRepository,
         private readonly AttachmentTextExtractor $attachmentTextExtractor,
-        private readonly AttachmentSummaryAiService $attachmentSummaryAiService,
+        private readonly AiService $aiService,
         private readonly EntityManagerInterface $em,
         private readonly ChatService $chatService,
         #[Autowire('%chat_audio_max_size_bytes%')]
@@ -319,7 +319,13 @@ class MessageController extends AbstractController
         }
 
         $summary = $this->messageAttachmentSummaryRepository->findOneByAttachmentAndUser($attachment, $user);
-        if ($summary instanceof MessageAttachmentSummary && $summary->isDone() && $summary->getSummaryText() !== '') {
+        if (
+            $summary instanceof MessageAttachmentSummary
+            && $summary->isDone()
+            && $summary->getSummaryText() !== ''
+            && !$this->isCombinedAiSummary($summary->getSummaryText())
+            && !$this->isLegacyDetailedPdfSummary($summary->getSummaryText())
+        ) {
             return $this->json([
                 'summaryText' => $summary->getSummaryText(),
                 'cached' => true,
@@ -342,7 +348,11 @@ class MessageController extends AbstractController
         try {
             $absolutePath = $this->chatService->resolveAttachmentAbsolutePath($attachment);
             $documentText = $this->attachmentTextExtractor->extractFromAttachment($attachment, $absolutePath);
-            $summaryText = $this->attachmentSummaryAiService->summarizeInFrench($documentText, $attachment->getOriginalName());
+            $summaryText = $this->aiService->analyzePdfWithOpenRouter(
+                $documentText,
+                $attachment->getOriginalName(),
+                'queen'
+            );
 
             $summary
                 ->setSummaryText($summaryText)
@@ -458,6 +468,21 @@ class MessageController extends AbstractController
         }
 
         return mb_substr($message, 0, 240);
+    }
+
+    private function isCombinedAiSummary(string $summaryText): bool
+    {
+        $normalized = mb_strtolower($summaryText);
+        return str_contains($normalized, 'traduction des messages de conversation');
+    }
+
+    private function isLegacyDetailedPdfSummary(string $summaryText): bool
+    {
+        $normalized = mb_strtolower($summaryText);
+
+        return str_contains($normalized, '2) points cles')
+            || str_contains($normalized, '3) actions / infos importantes')
+            || str_contains($normalized, 'analyse du document pdf');
     }
 
     private function assertCsrf(Request $request): void

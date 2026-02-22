@@ -2,8 +2,10 @@
 
 namespace App\Controller;
 
+use App\Service\AiService;
 use App\Service\LibreTranslateService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\Exception\JsonException;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -15,9 +17,11 @@ class TranslateController extends AbstractController
     private const MAX_TEXT_LENGTH = 5000;
 
     private const ALLOWED_LANGUAGES = ['en', 'fr', 'ar'];
+    private const ALLOWED_SOURCE_LANGUAGES = ['auto', 'en', 'fr', 'ar'];
 
     public function __construct(
-        private readonly LibreTranslateService $libreTranslateService
+        private readonly LibreTranslateService $libreTranslateService,
+        private readonly AiService $aiService
     ) {
     }
 
@@ -29,13 +33,13 @@ class TranslateController extends AbstractController
 
         try {
             $payload = $request->toArray();
-        } catch (\JsonException) {
+        } catch (JsonException) {
             return $this->json(['error' => 'Invalid JSON payload.'], Response::HTTP_BAD_REQUEST);
         }
 
         $text = trim((string) ($payload['text'] ?? ''));
         $target = strtolower(trim((string) ($payload['target'] ?? '')));
-        $source = strtolower(trim((string) ($payload['source'] ?? '')));
+        $source = strtolower(trim((string) ($payload['source'] ?? 'auto')));
 
         if ($text === '') {
             return $this->json(['error' => 'Text cannot be empty.'], Response::HTTP_BAD_REQUEST);
@@ -51,11 +55,11 @@ class TranslateController extends AbstractController
             return $this->json(['error' => 'Invalid target language.'], Response::HTTP_BAD_REQUEST);
         }
 
-        if (!in_array($source, self::ALLOWED_LANGUAGES, true)) {
+        if (!in_array($source, self::ALLOWED_SOURCE_LANGUAGES, true)) {
             return $this->json(['error' => 'Invalid source language.'], Response::HTTP_BAD_REQUEST);
         }
 
-        if ($source === $target) {
+        if ($source !== 'auto' && $source === $target) {
             return $this->json(['error' => 'Source and target languages must differ.'], Response::HTTP_BAD_REQUEST);
         }
 
@@ -65,10 +69,18 @@ class TranslateController extends AbstractController
             return $this->json([
                 'error' => mb_substr(trim($exception->getMessage()), 0, 240),
             ], Response::HTTP_BAD_REQUEST);
-        } catch (\RuntimeException $exception) {
-            return $this->json([
-                'error' => $this->formatServiceErrorMessage($exception),
-            ], Response::HTTP_SERVICE_UNAVAILABLE);
+        } catch (\RuntimeException) {
+            try {
+                $translatedText = $this->aiService->translateTextWithOpenRouter($text, $source, $target, 'queen');
+            } catch (\InvalidArgumentException $fallbackException) {
+                return $this->json([
+                    'error' => mb_substr(trim($fallbackException->getMessage()), 0, 240),
+                ], Response::HTTP_BAD_REQUEST);
+            } catch (\RuntimeException $fallbackException) {
+                return $this->json([
+                    'error' => $this->formatServiceErrorMessage($fallbackException),
+                ], Response::HTTP_SERVICE_UNAVAILABLE);
+            }
         }
 
         return $this->json(['translatedText' => $translatedText]);

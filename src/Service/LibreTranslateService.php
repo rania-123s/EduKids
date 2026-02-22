@@ -17,7 +17,12 @@ class LibreTranslateService
 
     public function translate(string $text, string $source, string $target): string
     {
-        if (!in_array($source, self::SUPPORTED_LANGUAGES, true)) {
+        $normalizedSource = strtolower(trim($source));
+        if ($normalizedSource === '') {
+            $normalizedSource = 'auto';
+        }
+
+        if ($normalizedSource !== 'auto' && !in_array($normalizedSource, self::SUPPORTED_LANGUAGES, true)) {
             throw new \InvalidArgumentException('Invalid source language.');
         }
 
@@ -25,7 +30,7 @@ class LibreTranslateService
             throw new \InvalidArgumentException('Invalid target language.');
         }
 
-        if ($source === $target) {
+        if ($normalizedSource !== 'auto' && $normalizedSource === $target) {
             return $text;
         }
 
@@ -39,7 +44,7 @@ class LibreTranslateService
                 ],
                 'json' => [
                     'q' => $text,
-                    'source' => $source,
+                    'source' => $normalizedSource,
                     'target' => $target,
                     'format' => 'text',
                 ],
@@ -71,6 +76,10 @@ class LibreTranslateService
     public function detectLanguage(string $text): string
     {
         $endpoint = $this->resolveDetectEndpoint();
+        $normalizedText = trim($text);
+        if ($normalizedText === '') {
+            return 'unknown';
+        }
 
         try {
             $response = $this->httpClient->request('POST', $endpoint, [
@@ -78,21 +87,19 @@ class LibreTranslateService
                     'Accept' => 'application/json',
                     'Content-Type' => 'application/json',
                 ],
-                'json' => ['q' => $text],
-                'timeout' => 10,
+                'json' => ['q' => $normalizedText],
+                'timeout' => 4,
             ]);
             $statusCode = $response->getStatusCode();
             $payload = $response->toArray(false);
-        } catch (TransportExceptionInterface $exception) {
-            throw new \RuntimeException('Language detection service is unreachable.', previous: $exception);
-        } catch (\Throwable $exception) {
-            throw new \RuntimeException('Invalid response from language detection service.', previous: $exception);
+        } catch (TransportExceptionInterface) {
+            return $this->detectLanguageHeuristic($normalizedText);
+        } catch (\Throwable) {
+            return $this->detectLanguageHeuristic($normalizedText);
         }
 
         if ($statusCode >= 400) {
-            $error = is_array($payload) ? (string) ($payload['error'] ?? '') : '';
-            $message = $error !== '' ? $error : 'Language detection service returned an error.';
-            throw new \RuntimeException($message);
+            return $this->detectLanguageHeuristic($normalizedText);
         }
 
         $detected = $this->extractDetectedLanguage($payload);
@@ -100,7 +107,7 @@ class LibreTranslateService
             return $detected;
         }
 
-        return $this->detectLanguageHeuristic($text);
+        return $this->detectLanguageHeuristic($normalizedText);
     }
 
     private function resolveTranslateEndpoint(): string

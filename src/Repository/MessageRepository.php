@@ -295,6 +295,23 @@ class MessageRepository extends ServiceEntityRepository
     /**
      * @return Message[]
      */
+    public function findLatestForConversation(Conversation $conversation, int $limit = 20): array
+    {
+        $messages = $this->createQueryBuilder('m')
+            ->andWhere('m.conversation = :conversation')
+            ->setParameter('conversation', $conversation)
+            ->orderBy('m.createdAt', 'DESC')
+            ->addOrderBy('m.id', 'DESC')
+            ->setMaxResults(max(1, min($limit, 100)))
+            ->getQuery()
+            ->getResult();
+
+        return array_reverse($messages);
+    }
+
+    /**
+     * @return Message[]
+     */
     public function findRecentImages(Conversation $conversation, int $limit = 12): array
     {
         return $this->createQueryBuilder('m')

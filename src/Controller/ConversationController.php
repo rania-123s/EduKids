@@ -14,6 +14,7 @@ use App\Service\ChatWebSocketTokenService;
 use App\Service\ChatService;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\Exception\JsonException;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -338,7 +339,7 @@ class ConversationController extends AbstractController
     {
         try {
             return $request->toArray();
-        } catch (\JsonException) {
+        } catch (JsonException) {
             return $request->request->all();
         }
     }

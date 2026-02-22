@@ -36,6 +36,7 @@ parameters:
         - 'video/webm'
     chat_auto_reply_admin_email: 'admin@site.com'
     chat_auto_reply_cooldown_minutes: 0
+    libretranslate_url: '%env(string:LIBRETRANSLATE_URL)%'
 
 services:
     # default configuration for services in *this* file
@@ -69,3 +70,7 @@ services:
         arguments:
             $appEnv: '%env(APP_ENV)%'
             $logger: '@logger'
+
+    App\Service\LibreTranslateService:
+        arguments:
+            $baseUrl: '%libretranslate_url%'

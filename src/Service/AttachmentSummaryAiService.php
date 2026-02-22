@@ -31,10 +31,7 @@ class AttachmentSummaryAiService
 
         try {
             $response = $this->httpClient->request('POST', $apiUrl, [
-                'headers' => [
-                    'Authorization' => 'Bearer ' . $apiKey,
-                    'Content-Type' => 'application/json',
-                ],
+                'headers' => $this->buildRequestHeaders($apiUrl, $apiKey),
                 'json' => $this->buildRequestPayload($prompt, $usesChatCompletions),
                 'timeout' => 60,
             ]);
@@ -50,8 +47,7 @@ class AttachmentSummaryAiService
         }
 
         if ($statusCode >= 400) {
-            $errorMessage = $this->extractApiErrorMessage($payload);
-            throw new \RuntimeException($errorMessage !== '' ? $errorMessage : 'Le service IA a retourne une erreur.');
+            return $this->summarizeLocally($documentText, $fileName);
         }
 
         $summary = trim($this->extractOutputText($payload));
@@ -65,6 +61,25 @@ class AttachmentSummaryAiService
     private function usesChatCompletionsApi(string $apiUrl): bool
     {
         return str_contains(strtolower($apiUrl), '/chat/completions');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function buildRequestHeaders(string $apiUrl, string $apiKey): array
+    {
+        $headers = [
+            'Authorization' => 'Bearer ' . $apiKey,
+            'Content-Type' => 'application/json',
+        ];
+
+        if (str_contains(strtolower($apiUrl), 'openrouter.ai')) {
+            // OpenRouter recommends these headers for app identification.
+            $headers['HTTP-Referer'] = 'http://localhost';
+            $headers['X-Title'] = 'EduKids';
+        }
+
+        return $headers;
     }
 
     /**
@@ -153,6 +168,21 @@ class AttachmentSummaryAiService
     /**
      * @param array<string, mixed> $payload
      */
+    private function extractApiErrorCode(array $payload): string
+    {
+        $error = $payload['error'] ?? null;
+        if (!is_array($error)) {
+            return '';
+        }
+
+        $code = $error['code'] ?? '';
+
+        return is_string($code) ? trim($code) : '';
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
     private function extractOutputText(array $payload): string
     {
         $choices = $payload['choices'] ?? null;
@@ -162,6 +192,27 @@ class AttachmentSummaryAiService
                 $content = $message['content'] ?? null;
                 if (is_string($content) && trim($content) !== '') {
                     return trim($content);
+                }
+
+                if (is_array($content)) {
+                    $parts = [];
+                    foreach ($content as $entry) {
+                        if (is_string($entry) && trim($entry) !== '') {
+                            $parts[] = trim($entry);
+                            continue;
+                        }
+
+                        if (is_array($entry)) {
+                            $text = $entry['text'] ?? null;
+                            if (is_string($text) && trim($text) !== '') {
+                                $parts[] = trim($text);
+                            }
+                        }
+                    }
+
+                    if ($parts !== []) {
+                        return trim(implode("\n", $parts));
+                    }
                 }
             }
         }
@@ -290,4 +341,5 @@ PROMPT;
             implode("\n- ", $actions)
         );
     }
+
 }

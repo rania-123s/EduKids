@@ -1,0 +1,5 @@
+Merge RamiUser dans integration (conflits résolus, base GestionEvenements)
+
+Intégration du module gestion utilisateur (branche RamiUser) dans le projet.
+Conflits résolus en conservant la base GestionEvenements (événements, Symfony 7.4).
+Les deux modules (user et événements) sont désormais sur la branche integration.

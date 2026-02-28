@@ -4,10 +4,13 @@ namespace App\Form\Evenement;
 
 use App\Entity\Evenement;
 use Symfony\Component\Form\AbstractType;
+use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
 use Symfony\Component\Form\Extension\Core\Type\DateType;
 use Symfony\Component\Form\Extension\Core\Type\FileType;
+use Symfony\Component\Form\Extension\Core\Type\IntegerType;
 use Symfony\Component\Form\Extension\Core\Type\TextareaType;
 use Symfony\Component\Form\Extension\Core\Type\TextType;
+use Symfony\Component\Form\Extension\Core\Type\TimeType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 use Symfony\Component\Validator\Constraints\File;
@@ -64,6 +67,48 @@ class EvenementType extends AbstractType
                     'class' => 'form-control',
                 ],
                 'required' => true,
+            ])
+            ->add('heureDebut', TimeType::class, [
+                'label' => 'Heure de début',
+                'widget' => 'single_text',
+                'attr' => [
+                    'class' => 'form-control',
+                ],
+                'required' => true,
+            ])
+            ->add('heureFin', TimeType::class, [
+                'label' => 'Heure de fin',
+                'widget' => 'single_text',
+                'attr' => [
+                    'class' => 'form-control',
+                ],
+                'required' => true,
+            ])
+            ->add('typeEvenement', ChoiceType::class, [
+                'label' => "Type d'événement",
+                'choices' => array_flip(Evenement::TYPES),
+                'placeholder' => '-- Choisir un type --',
+                'required' => false,
+                'attr' => [
+                    'class' => 'form-select',
+                ],
+            ])
+            ->add('localisation', TextType::class, [
+                'label' => 'Localisation',
+                'required' => false,
+                'attr' => [
+                    'placeholder' => 'Adresse ou lieu',
+                    'class' => 'form-control',
+                ],
+            ])
+            ->add('nbPlacesDisponibles', IntegerType::class, [
+                'label' => 'Nombre de places disponibles',
+                'required' => false,
+                'attr' => [
+                    'class' => 'form-control',
+                    'min' => 0,
+                    'placeholder' => 'Illimité si vide',
+                ],
             ])
             ->add('imageUpload', FileType::class, [
                 'label' => "Image de l'événement",

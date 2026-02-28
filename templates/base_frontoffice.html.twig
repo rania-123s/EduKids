@@ -85,15 +85,8 @@
 					</li>
 
 					<!-- Nav item Events -->
-					<li class="nav-item dropdown">
-						<a class="nav-link dropdown-toggle" href="#" id="eventsMenu" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">Events</a>
-						<ul class="dropdown-menu" aria-labelledby="eventsMenu">
-							<li><a class="dropdown-item" href="#">All Events</a></li>
-							<li><a class="dropdown-item" href="#">Upcoming Events</a></li>
-							<li><a class="dropdown-item" href="#">Past Events</a></li>
-							<li><hr class="dropdown-divider"></li>
-							<li><a class="dropdown-item" href="#">Event Categories</a></li>
-						</ul>
+					<li class="nav-item">
+						<a class="nav-link" href="{{ path('app_front_evenement_index') }}">Events</a>
 					</li>
 
 					<!-- Nav item About -->
@@ -107,9 +100,7 @@
 					</li>
 
 					<!-- Nav item Admin -->
-					<li class="nav-item">
-						<a class="nav-link" href="{{ path('app_admin_page') }}">Admin</a>
-					</li>
+					
 				</ul>
 				<!-- Nav Main menu END -->
 
@@ -127,7 +118,64 @@
 				<!-- Nav Search END -->
 			</div>
 			<!-- Main navbar END -->
-
+<!-- Profile & Favorites START -->
+			<div class="d-flex align-items-center gap-3">
+				<!-- Favorites Icon -->
+				<a href="{{ path('app_my_favorites') }}" class="nav-favorites-icon position-relative" title="Mes Favoris">
+					<i class="fas fa-heart"></i>
+					{% set favCount = get_favorites_count() %}
+					{% if favCount > 0 %}
+					<span class="favorites-badge">{{ favCount > 99 ? '99+' : favCount }}</span>
+					{% endif %}
+				</a>
+				<style>
+				.nav-favorites-icon {
+					width: 36px;
+					height: 36px;
+					background: #fff;
+					border: 2px solid #fce4ec;
+					border-radius: 50%;
+					display: flex;
+					align-items: center;
+					justify-content: center;
+					color: #e91e63;
+					font-size: 15px;
+					text-decoration: none;
+					transition: all 0.3s ease;
+				}
+				.nav-favorites-icon:hover {
+					background: #e91e63;
+					border-color: #e91e63;
+					color: white;
+					transform: scale(1.1);
+					box-shadow: 0 4px 12px rgba(233, 30, 99, 0.35);
+				}
+				.nav-favorites-icon:hover i {
+					animation: heartBeat 0.5s ease;
+				}
+				.favorites-badge {
+					position: absolute;
+					top: -6px;
+					right: -6px;
+					background: linear-gradient(135deg, #ff6b81 0%, #e91e63 100%);
+					color: white;
+					font-size: 10px;
+					font-weight: 700;
+					min-width: 18px;
+					height: 18px;
+					border-radius: 9px;
+					display: flex;
+					align-items: center;
+					justify-content: center;
+					padding: 0 4px;
+					border: 2px solid white;
+					box-shadow: 0 2px 6px rgba(233, 30, 99, 0.4);
+				}
+				@keyframes heartBeat {
+					0%, 100% { transform: scale(1); }
+					50% { transform: scale(1.2); }
+				}
+				</style>
 			<!-- Profile START -->
 			<div class="dropdown ms-1 ms-lg-0">
 				<a class="avatar avatar-sm p-0" href="#" id="profileDropdown" role="button" data-bs-auto-close="outside" data-bs-display="static" data-bs-toggle="dropdown" aria-expanded="false">

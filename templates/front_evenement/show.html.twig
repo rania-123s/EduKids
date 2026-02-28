@@ -12,14 +12,12 @@ Page Banner START -->
 				<div class="d-flex justify-content-between align-items-center flex-wrap">
 					<div>
 						<h1 class="mb-2">{{ evenement.titre }}</h1>
-						<!-- Breadcrumb -->
-						<nav aria-label="breadcrumb">
-							<ol class="breadcrumb mb-0">
-								<li class="breadcrumb-item"><a href="{{ path('app_home_page') }}">Accueil</a></li>
-								<li class="breadcrumb-item"><a href="{{ path('app_front_evenement_index') }}">Événements</a></li>
-								<li class="breadcrumb-item active" aria-current="page">{{ evenement.titre }}</li>
-							</ol>
-						</nav>
+						{% if evenement.typeEvenement %}
+						<span class="badge bg-secondary px-3 py-2">
+							<i class="fas fa-tag me-1"></i>
+							{{ evenement.typeEvenementLabel }}
+						</span>
+						{% endif %}
 					</div>
 					<div class="mt-3 mt-md-0">
 						<span class="badge bg-primary px-3 py-2 fs-6">
@@ -68,9 +66,27 @@ Event Detail START -->
 								{{ evenement.dateEvenement ? evenement.dateEvenement|date('d/m/Y') : 'Date à définir' }}
 							</span>
 							<span class="badge bg-success bg-opacity-10 text-success px-3 py-2">
-								<i class="fas fa-box me-2"></i>
-								{{ evenement.ressources|length }} ressource(s)
+								<i class="fas fa-clock me-2"></i>
+								{{ evenement.heureDebut ? evenement.heureDebut|date('H:i') : '-' }} - {{ evenement.heureFin ? evenement.heureFin|date('H:i') : '-' }}
+								<span class="ms-1">({{ evenement.dureeFormatee }})</span>
 							</span>
+							{% if evenement.nbPlacesDisponibles is not null %}
+							<span class="badge bg-warning bg-opacity-10 text-warning px-3 py-2">
+								<i class="fas fa-users me-2"></i>
+								Places restantes : <strong>{{ evenement.nbPlacesRestantes }}</strong> / {{ evenement.nbPlacesDisponibles }}
+							</span>
+							{% else %}
+							<span class="badge bg-info bg-opacity-10 text-info px-3 py-2">
+								<i class="fas fa-users me-2"></i>
+								Places illimitées
+							</span>
+							{% endif %}
+							{% if evenement.programme %}
+							<span class="badge bg-info bg-opacity-10 text-info px-3 py-2">
+								<i class="fas fa-clipboard-check me-2"></i>
+								Programme disponible
+							</span>
+							{% endif %}
 						</div>
 						
 						<!-- Description -->
@@ -79,98 +95,112 @@ Event Detail START -->
 							<p class="mb-0">{{ evenement.description|nl2br }}</p>
 						</div>
 						
-						<!-- Ressources section -->
-						{% if evenement.ressources|length > 0 %}
-						<hr class="my-4">
-						<h4 class="mb-4">
-							<i class="fas fa-box-open me-2 text-warning"></i>
-							Ressources de l'événement 
-							<span class="badge bg-warning text-dark ms-2">{{ evenement.ressources|length }}</span>
-						</h4>
-						
-						<div class="row g-3">
-							{% for ressource in evenement.ressources %}
-							<div class="col-md-6">
-								<div class="card border h-100 shadow-sm">
-									<div class="card-header bg-light py-2">
-										<!-- Type badge -->
-										<span class="badge 
-											{% if ressource.typeRessource == 'activite' %}bg-primary
-											{% elseif ressource.typeRessource == 'pause' %}bg-warning text-dark
-											{% elseif ressource.typeRessource == 'document' %}bg-info
-											{% else %}bg-secondary{% endif %}">
-											{% if ressource.typeRessource == 'activite' %}
-												<i class="fas fa-running me-1"></i>
-											{% elseif ressource.typeRessource == 'pause' %}
-												<i class="fas fa-coffee me-1"></i>
-											{% elseif ressource.typeRessource == 'document' %}
-												<i class="fas fa-file-alt me-1"></i>
-											{% else %}
-												<i class="fas fa-tools me-1"></i>
-											{% endif %}
-											{{ ressource.typeRessource|capitalize }}
-										</span>
+						<!-- Localisation et Carte Google Maps -->
+						{% if evenement.localisation %}
+						<div class="mb-4">
+							<h5 class="mb-3"><i class="bi bi-geo-alt-fill me-2 text-danger"></i>Localisation</h5>
+							<div class="card border">
+								<div class="card-body">
+									<div class="d-flex justify-content-between align-items-center mb-3">
+										<p class="mb-0">
+											<i class="bi bi-pin-map me-2 text-primary"></i>
+											<strong>{{ evenement.localisation }}</strong>
+										</p>
+										<a href="https://www.google.com/maps/search/?api=1&query={{ evenement.localisation|url_encode }}" 
+										   target="_blank" 
+										   class="btn btn-sm btn-primary">
+											<i class="bi bi-box-arrow-up-right me-1"></i>Ouvrir dans Google Maps
+										</a>
 									</div>
-									
-									<div class="card-body">
-										<h6 class="card-title mb-2">
-											<i class="bi bi-tag text-primary me-1"></i>
-											{{ ressource.nom }}
-										</h6>
-										
-										{% if ressource.description %}
-										<p class="card-text small text-muted mb-3">{{ ressource.description }}</p>
-										{% endif %}
-										
-										<!-- Dates -->
-										{% if ressource.dateDebut or ressource.dateFin %}
-										<div class="mb-2">
-											{% if ressource.dateDebut %}
-											<div class="small mb-1">
-												<i class="fas fa-play text-success me-2"></i>
-												<strong>Début:</strong> {{ ressource.dateDebut|date('d/m/Y à H:i') }}
-											</div>
-											{% endif %}
-											{% if ressource.dateFin %}
-											<div class="small">
-												<i class="fas fa-stop text-danger me-2"></i>
-												<strong>Fin:</strong> {{ ressource.dateFin|date('d/m/Y à H:i') }}
-											</div>
-											{% endif %}
-										</div>
-										{% endif %}
-										
-										<!-- Quantité -->
-										{% if ressource.quantite %}
-										<div class="mb-2">
-											<span class="badge bg-light text-dark border">
-												<i class="fas fa-cubes me-1"></i>
-												Quantité : {{ ressource.quantite }}
-											</span>
-										</div>
-										{% endif %}
-										
-										<!-- Fichier -->
-										{% if ressource.fichier %}
-										<div class="mt-3 pt-2 border-top">
-											<a href="{{ asset('uploads/' ~ ressource.fichier) }}" 
-											   class="btn btn-sm btn-outline-success w-100" 
-											   target="_blank"
-											   download>
-												<i class="fas fa-download me-2"></i> Télécharger le fichier
-											</a>
-											<small class="text-muted d-block text-center mt-1">{{ ressource.fichier }}</small>
-										</div>
-										{% endif %}
+									<!-- Google Maps Iframe -->
+									<div class="ratio ratio-16x9" style="border-radius: 10px; overflow: hidden;">
+										<iframe 
+											src="https://www.google.com/maps?q={{ evenement.localisation|url_encode }}&output=embed"
+											style="border:0; border-radius: 10px;" 
+											allowfullscreen="" 
+											loading="lazy" 
+											referrerpolicy="no-referrer-when-downgrade">
+										</iframe>
 									</div>
 								</div>
 							</div>
-							{% endfor %}
+						</div>
+						{% endif %}
+						
+						<!-- Section Programme -->
+						{% if evenement.programme %}
+						<hr class="my-4">
+						<h4 class="mb-4">
+							<i class="fas fa-clipboard-list me-2 text-warning"></i>
+							Programme de l'événement 
+						</h4>
+						
+						<div class="row g-4">
+							<!-- Pause -->
+							<div class="col-12">
+								<div class="card border-warning">
+									<div class="card-header bg-warning text-dark py-2">
+										<i class="fas fa-coffee me-2"></i> <strong>Horaires de Pause</strong>
+									</div>
+									<div class="card-body">
+										<div class="row text-center">
+											<div class="col-4">
+												<h5 class="text-success mb-1">{{ evenement.programme.pauseDebut|date('H:i') }}</h5>
+												<small class="text-muted">Début</small>
+											</div>
+											<div class="col-4">
+												<h5 class="text-dark mb-1">{{ evenement.programme.dureePause }} min</h5>
+												<small class="text-muted">Durée</small>
+											</div>
+											<div class="col-4">
+												<h5 class="text-danger mb-1">{{ evenement.programme.pauseFin|date('H:i') }}</h5>
+												<small class="text-muted">Fin</small>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+							
+							<!-- Activités -->
+							<div class="col-12">
+								<div class="card border-success h-100">
+									<div class="card-header bg-success text-white py-2">
+										<i class="fas fa-running me-2"></i> <strong>Activités Prévues</strong>
+									</div>
+									<div class="card-body">
+										<p class="mb-0" style="white-space: pre-line;">{{ evenement.programme.activites }}</p>
+									</div>
+								</div>
+							</div>
+							
+							<!-- Documents -->
+							<div class="col-md-6">
+								<div class="card border-info h-100">
+									<div class="card-header bg-info text-white py-2">
+										<i class="fas fa-file-alt me-2"></i> <strong>Documents Requis</strong>
+									</div>
+									<div class="card-body">
+										<p class="mb-0" style="white-space: pre-line;">{{ evenement.programme.documentsRequis }}</p>
+									</div>
+								</div>
+							</div>
+							
+							<!-- Matériel -->
+							<div class="col-md-6">
+								<div class="card border-secondary h-100">
+									<div class="card-header bg-secondary text-white py-2">
+										<i class="fas fa-tools me-2"></i> <strong>Matériels Requis</strong>
+									</div>
+									<div class="card-body">
+										<p class="mb-0" style="white-space: pre-line;">{{ evenement.programme.materielsRequis }}</p>
+									</div>
+								</div>
+							</div>
 						</div>
 						{% else %}
 						<div class="alert alert-info">
 							<i class="bi bi-info-circle me-2"></i>
-							Aucune ressource n'est associée à cet événement pour le moment.
+							Le programme de cet événement sera bientôt disponible.
 						</div>
 						{% endif %}
 					</div>
@@ -194,62 +224,77 @@ Event Detail START -->
 								<span class="fw-bold">{{ evenement.dateEvenement ? evenement.dateEvenement|date('d/m/Y') : 'N/A' }}</span>
 							</li>
 							<li class="list-group-item d-flex justify-content-between align-items-center px-0">
-								<span><i class="fas fa-box text-primary me-2"></i>Ressources</span>
-								<span class="badge bg-primary rounded-pill">{{ evenement.ressources|length }}</span>
+								<span><i class="fas fa-clock text-success me-2"></i>Horaires</span>
+								<span>
+									<span class="badge bg-success">{{ evenement.heureDebut ? evenement.heureDebut|date('H:i') : '-' }}</span>
+									-
+									<span class="badge bg-danger">{{ evenement.heureFin ? evenement.heureFin|date('H:i') : '-' }}</span>
+								</span>
 							</li>
+							<li class="list-group-item d-flex justify-content-between align-items-center px-0">
+								<span><i class="fas fa-hourglass-half text-warning me-2"></i>Durée</span>
+								<span class="badge bg-warning text-dark">{{ evenement.dureeFormatee }}</span>
+							</li>
+							{% if evenement.typeEvenement %}
+							<li class="list-group-item d-flex justify-content-between align-items-center px-0">
+								<span><i class="fas fa-tag text-secondary me-2"></i>Type</span>
+								<span class="badge bg-secondary">{{ evenement.typeEvenementLabel }}</span>
+							</li>
+							{% endif %}
+							<li class="list-group-item d-flex justify-content-between align-items-center px-0">
+								<span><i class="fas fa-clipboard-list text-info me-2"></i>Programme</span>
+								{% if evenement.programme %}
+									<span class="badge bg-success"><i class="fas fa-check"></i> Disponible</span>
+								{% else %}
+									<span class="badge bg-warning text-dark">À venir</span>
+								{% endif %}
+							</li>
+							{% if evenement.localisation %}
+							<li class="list-group-item px-0">
+								<span><i class="fas fa-map-marker-alt text-danger me-2"></i>Lieu</span>
+								<p class="mb-0 mt-1 small text-muted">{{ evenement.localisation }}</p>
+							</li>
+							{% endif %}
 						</ul>
 					</div>
 				</div>
 				
-				<!-- Types de ressources -->
-				{% if evenement.ressources|length > 0 %}
+				<!-- Résumé du programme -->
+				{% if evenement.programme %}
 				<div class="card shadow mb-4">
 					<div class="card-header bg-light">
 						<h5 class="card-title mb-0">
-							<i class="fas fa-tags me-2 text-primary"></i>Répartition des ressources
+							<i class="fas fa-clipboard-check me-2 text-primary"></i>Résumé du Programme
 						</h5>
 					</div>
 					<div class="card-body">
-						{% set activites = evenement.ressources|filter(r => r.typeRessource == 'activite')|length %}
-						{% set pauses = evenement.ressources|filter(r => r.typeRessource == 'pause')|length %}
-						{% set docs = evenement.ressources|filter(r => r.typeRessource == 'document')|length %}
-						{% set materiels = evenement.ressources|filter(r => r.typeRessource == 'materiel')|length %}
-						
-						{% if activites > 0 %}
-						<div class="d-flex justify-content-between align-items-center mb-2">
-							<span class="badge bg-primary">
-								<i class="fas fa-running me-1"></i>Activités
-							</span>
-							<span class="fw-bold">{{ activites }}</span>
-						</div>
-						{% endif %}
-						
-						{% if pauses > 0 %}
 						<div class="d-flex justify-content-between align-items-center mb-2">
 							<span class="badge bg-warning text-dark">
-								<i class="fas fa-coffee me-1"></i>Pauses
+								<i class="fas fa-coffee me-1"></i>Pause
 							</span>
-							<span class="fw-bold">{{ pauses }}</span>
+							<span class="small">{{ evenement.programme.pauseDebut|date('H:i') }} - {{ evenement.programme.pauseFin|date('H:i') }}</span>
 						</div>
-						{% endif %}
 						
-						{% if docs > 0 %}
+						<div class="d-flex justify-content-between align-items-center mb-2">
+							<span class="badge bg-success">
+								<i class="fas fa-running me-1"></i>Activités
+							</span>
+							<i class="fas fa-check-circle text-success"></i>
+						</div>
+						
 						<div class="d-flex justify-content-between align-items-center mb-2">
 							<span class="badge bg-info">
 								<i class="fas fa-file-alt me-1"></i>Documents
 							</span>
-							<span class="fw-bold">{{ docs }}</span>
+							<i class="fas fa-check-circle text-success"></i>
 						</div>
-						{% endif %}
 						
-						{% if materiels > 0 %}
-						<div class="d-flex justify-content-between align-items-center mb-2">
+						<div class="d-flex justify-content-between align-items-center">
 							<span class="badge bg-secondary">
 								<i class="fas fa-tools me-1"></i>Matériels
 							</span>
-							<span class="fw-bold">{{ materiels }}</span>
+							<i class="fas fa-check-circle text-success"></i>
 						</div>
-						{% endif %}
 					</div>
 				</div>
 				{% endif %}
@@ -268,4 +313,5 @@ Event Detail START -->
 </section>
 <!-- =======================
 Event Detail END -->
+
 {% endblock %}

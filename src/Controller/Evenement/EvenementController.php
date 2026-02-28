@@ -8,6 +8,7 @@ use App\Repository\Evenement\EvenementRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\File\Exception\FileException;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
@@ -21,6 +22,21 @@ class EvenementController extends AbstractController
     {
         return $this->render('evenement/index.html.twig', [
             'evenements' => $evenementRepository->findAll(),
+        ]);
+    }
+
+    #[Route('/statistiques', name: 'app_evenement_statistiques', methods: ['GET'])]
+    public function statistiques(EvenementRepository $evenementRepository): Response
+    {
+        $stats = $evenementRepository->getStats();
+        return $this->render('evenement/statistiques.html.twig', [
+            'totalEvents' => $stats['totalEvents'],
+            'totalLikes' => $stats['totalLikes'],
+            'totalDislikes' => $stats['totalDislikes'],
+            'totalFavorites' => $stats['totalFavorites'],
+            'mostLiked' => $evenementRepository->findTopByLikes(10),
+            'mostDisliked' => $evenementRepository->findTopByDislikes(10),
+            'mostFavorited' => $evenementRepository->findTopByFavorites(10),
         ]);
     }
 
@@ -120,6 +136,21 @@ class EvenementController extends AbstractController
         return $this->render('evenement/edit.html.twig', [
             'evenement' => $evenement,
             'form' => $form,
+        ]);
+    }
+
+    #[Route('/recommend-image', name: 'app_evenement_recommend_image', methods: ['POST'])]
+    public function recommendImage(Request $request): JsonResponse
+    {
+        $data = json_decode($request->getContent(), true) ?: [];
+        $titre = $data['titre'] ?? '';
+        $description = $data['description'] ?? '';
+
+        // TODO: brancher un service d'IA ou d'images (ex: API stock photos) pour renvoyer une imageUrl
+        // Pour l'instant on renvoie un échec pour que le formulaire ne plante pas.
+        return $this->json([
+            'success' => false,
+            'message' => 'Recommandation d\'image non configurée. Téléchargez une image manuellement.',
         ]);
     }
 

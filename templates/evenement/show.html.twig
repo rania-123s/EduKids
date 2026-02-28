@@ -4,20 +4,6 @@
 
 {% block body %}
 <div class="dashboard-content-one">
-    <!-- Breadcubs Area Start Here -->
-    <div class="breadcrumbs-area">
-        <h3>Événements</h3>
-        <ul>
-            <li>
-                <a href="{{ path('app_admin_page') }}">Accueil</a>
-            </li>
-            <li>
-                <a href="{{ path('app_evenement_index') }}">Événements</a>
-            </li>
-            <li>Détails</li>
-        </ul>
-    </div>
-    <!-- Breadcubs Area End Here -->
 
     <!-- Event Details Area Start Here -->
     <div class="card height-auto">
@@ -31,6 +17,12 @@
                         <i class="fas fa-calendar-day me-1"></i>
                         {{ evenement.dateEvenement ? evenement.dateEvenement|date('d/m/Y') : 'Date non définie' }}
                     </span>
+                    {% if evenement.typeEvenement %}
+                    <span class="badge bg-secondary px-3 py-2 ms-2">
+                        <i class="fas fa-tag me-1"></i>
+                        {{ evenement.typeEvenementLabel }}
+                    </span>
+                    {% endif %}
                 </div>
             </div>
             
@@ -69,14 +61,39 @@
                                         </tr>
                                         <tr>
                                             <td class="fw-bold text-muted">
-                                                <i class="fas fa-boxes text-info me-2"></i> Ressources
+                                                <i class="fas fa-clock text-success me-2"></i> Horaires
                                             </td>
                                             <td>
-                                                <span class="badge bg-info rounded-pill px-3 py-2">
-                                                    {{ evenement.ressources|length }} ressource(s)
-                                                </span>
+                                                <span class="badge bg-success px-2 py-1">{{ evenement.heureDebut ? evenement.heureDebut|date('H:i') : '-' }}</span>
+                                                <i class="fas fa-arrow-right mx-1 text-muted"></i>
+                                                <span class="badge bg-danger px-2 py-1">{{ evenement.heureFin ? evenement.heureFin|date('H:i') : '-' }}</span>
+                                                <span class="badge bg-secondary ms-2">{{ evenement.dureeFormatee }}</span>
                                             </td>
                                         </tr>
+                                        <tr>
+                                            <td class="fw-bold text-muted">
+                                                <i class="fas fa-clipboard-list text-info me-2"></i> Programme
+                                            </td>
+                                            <td>
+                                                {% if evenement.programme %}
+                                                    <span class="badge bg-success rounded-pill px-3 py-2">
+                                                        <i class="fas fa-check me-1"></i> Défini
+                                                    </span>
+                                                {% else %}
+                                                    <span class="badge bg-warning text-dark rounded-pill px-3 py-2">
+                                                        <i class="fas fa-exclamation me-1"></i> Non défini
+                                                    </span>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% if evenement.localisation %}
+                                        <tr>
+                                            <td class="fw-bold text-muted">
+                                                <i class="fas fa-map-marker-alt text-danger me-2"></i> Localisation
+                                            </td>
+                                            <td>{{ evenement.localisation }}</td>
+                                        </tr>
+                                        {% endif %}
                                     </tbody>
                                 </table>
                             </div>
@@ -87,20 +104,20 @@
                             <div class="row text-center">
                                 <div class="col-4">
                                     <div class="p-3 bg-light rounded">
-                                        <h3 class="text-primary mb-0">{{ evenement.ressources|filter(r => r.typeRessource == 'activite')|length }}</h3>
-                                        <small class="text-muted">Activités</small>
+                                        <h3 class="text-success mb-0"><i class="fas fa-thumbs-up"></i></h3>
+                                        <span class="badge bg-success">{{ evenement.likesCount }} J'aime</span>
                                     </div>
                                 </div>
                                 <div class="col-4">
                                     <div class="p-3 bg-light rounded">
-                                        <h3 class="text-warning mb-0">{{ evenement.ressources|filter(r => r.typeRessource == 'pause')|length }}</h3>
-                                        <small class="text-muted">Pauses</small>
+                                        <h3 class="text-danger mb-0"><i class="fas fa-thumbs-down"></i></h3>
+                                        <span class="badge bg-danger">{{ evenement.dislikesCount }} N'aime pas</span>
                                     </div>
                                 </div>
                                 <div class="col-4">
                                     <div class="p-3 bg-light rounded">
-                                        <h3 class="text-info mb-0">{{ evenement.ressources|filter(r => r.typeRessource == 'document')|length }}</h3>
-                                        <small class="text-muted">Documents</small>
+                                        <h3 class="text-warning mb-0"><i class="fas fa-star"></i></h3>
+                                        <span class="badge bg-warning text-dark">{{ evenement.favoritesCount }} Favoris</span>
                                     </div>
                                 </div>
                             </div>
@@ -114,120 +131,125 @@
                         </h5>
                         <p class="mb-0">{{ evenement.description|nl2br }}</p>
                     </div>
-                    
-                    <!-- Actions -->
-                    <div class="mt-5 pt-4 border-top">
-                        <a href="{{ path('app_evenement_edit', {'id': evenement.id}) }}" 
-                           class="btn-fill-lg btn-gradient-yellow btn-hover-bluedark me-2">
-                            <i class="fas fa-edit me-1"></i> Modifier
-                        </a>
-                        <a href="{{ path('app_evenement_index') }}" 
-                           class="btn-fill-lg bg-blue-dark btn-hover-yellow me-2">
-                            <i class="fas fa-arrow-left me-1"></i> Retour à la liste
-                        </a>
-                        <form method="post" action="{{ path('app_evenement_delete', {'id': evenement.id}) }}" 
-                              style="display: inline-block;" 
-                              onsubmit="return confirm('Êtes-vous sûr de vouloir supprimer cet événement ?');">
-                            <input type="hidden" name="_token" value="{{ csrf_token('delete' ~ evenement.id) }}">
-                            <button type="submit" class="btn btn-outline-danger px-4 py-2">
-                                <i class="fas fa-trash-alt me-1"></i> Supprimer
-                            </button>
-                        </form>
-                    </div>
                 </div>
             </div>
         </div>
     </div>
-    <!-- Event Details Area End Here -->
-
-    <!-- Ressources de l'Événement -->
-    {% if evenement.ressources|length > 0 %}
+    
+    <!-- Section Programme -->
+    {% if evenement.programme %}
     <div class="card height-auto mt-4">
         <div class="card-body">
             <div class="heading-layout1 mb-4">
                 <div class="item-title">
-                    <h3><i class="fas fa-boxes text-info me-2"></i> Ressources de cet Événement</h3>
+                    <h3><i class="fas fa-clipboard-list text-success me-2"></i> Programme de l'Événement</h3>
                 </div>
                 <div class="dropdown">
-                    <a href="{{ path('app_ressource_new') }}" class="btn btn-sm btn-outline-primary">
-                        <i class="fas fa-plus me-1"></i> Ajouter
+                    <a href="{{ path('app_programme_edit', {'id': evenement.programme.id}) }}" class="btn btn-sm btn-outline-warning">
+                        <i class="fas fa-edit me-1"></i> Modifier
                     </a>
                 </div>
             </div>
             
-            <div class="table-responsive">
-                <table class="table table-hover table-striped">
-                    <thead class="bg-light">
-                        <tr>
-                            <th class="text-center" style="width: 50px;">#</th>
-                            <th><i class="fas fa-tag me-1"></i> Nom</th>
-                            <th class="text-center"><i class="fas fa-folder me-1"></i> Type</th>
-                            <th class="text-center"><i class="fas fa-play me-1"></i> Début</th>
-                            <th class="text-center"><i class="fas fa-stop me-1"></i> Fin</th>
-                            <th class="text-center"><i class="fas fa-cubes me-1"></i> Qté</th>
-                            <th class="text-center">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for ressource in evenement.ressources %}
-                        <tr>
-                            <td class="text-center text-muted">{{ loop.index }}</td>
-                            <td>
-                                <strong>{{ ressource.nom }}</strong>
-                                {% if ressource.fichier %}
-                                    <span class="badge bg-success ms-1" title="Fichier attaché">
-                                        <i class="fas fa-paperclip"></i>
-                                    </span>
-                                {% endif %}
-                            </td>
-                            <td class="text-center">
-                                {% set typeColors = {
-                                    'activite': 'primary',
-                                    'pause': 'warning',
-                                    'document': 'info',
-                                    'materiel': 'secondary'
-                                } %}
-                                <span class="badge bg-{{ typeColors[ressource.typeRessource] ?? 'secondary' }}">
-                                    {{ ressource.typeRessource|capitalize }}
-                                </span>
-                            </td>
-                            <td class="text-center">
-                                {{ ressource.dateDebut ? ressource.dateDebut|date('d/m/Y H:i') : '-' }}
-                            </td>
-                            <td class="text-center">
-                                {{ ressource.dateFin ? ressource.dateFin|date('d/m/Y H:i') : '-' }}
-                            </td>
-                            <td class="text-center">
-                                {{ ressource.quantite ?? '-' }}
-                            </td>
-                            <td class="text-center">
-                                <a href="{{ path('app_ressource_show', {'id': ressource.id}) }}" 
-                                   class="btn btn-sm btn-outline-info" title="Voir">
-                                    <i class="fas fa-eye"></i>
-                                </a>
-                                <a href="{{ path('app_ressource_edit', {'id': ressource.id}) }}" 
-                                   class="btn btn-sm btn-outline-warning" title="Modifier">
-                                    <i class="fas fa-edit"></i>
-                                </a>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <div class="row">
+                <!-- Pause -->
+                <div class="col-12 mb-4">
+                    <div class="card border-warning">
+                        <div class="card-header bg-warning text-dark py-2">
+                            <i class="fas fa-coffee me-2"></i> <strong>Horaires de Pause</strong>
+                        </div>
+                        <div class="card-body">
+                            <div class="row text-center">
+                                <div class="col-md-4">
+                                    <h5 class="text-success mb-1">{{ evenement.programme.pauseDebut|date('H:i') }}</h5>
+                                    <small class="text-muted">Début</small>
+                                </div>
+                                <div class="col-md-4">
+                                    <h5 class="text-dark mb-1">{{ evenement.programme.dureePause }} min</h5>
+                                    <small class="text-muted">Durée</small>
+                                </div>
+                                <div class="col-md-4">
+                                    <h5 class="text-danger mb-1">{{ evenement.programme.pauseFin|date('H:i') }}</h5>
+                                    <small class="text-muted">Fin</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Activités -->
+                <div class="col-12 mb-4">
+                    <div class="card border-success">
+                        <div class="card-header bg-success text-white py-2">
+                            <i class="fas fa-running me-2"></i> <strong>Activités Prévues</strong>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-0" style="white-space: pre-line;">{{ evenement.programme.activites }}</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Documents et Matériels -->
+                <div class="col-md-6 mb-4">
+                    <div class="card border-info h-100">
+                        <div class="card-header bg-info text-white py-2">
+                            <i class="fas fa-file-alt me-2"></i> <strong>Documents Requis</strong>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-0" style="white-space: pre-line;">{{ evenement.programme.documentsRequis }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6 mb-4">
+                    <div class="card border-secondary h-100">
+                        <div class="card-header bg-secondary text-white py-2">
+                            <i class="fas fa-tools me-2"></i> <strong>Matériels Requis</strong>
+                        </div>
+                        <div class="card-body">
+                            <p class="mb-0" style="white-space: pre-line;">{{ evenement.programme.materielsRequis }}</p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
     {% else %}
     <div class="card height-auto mt-4">
         <div class="card-body text-center py-5">
-            <i class="fas fa-box-open fa-3x text-muted mb-3"></i>
-            <h5 class="text-muted">Aucune ressource pour cet événement</h5>
-            <p class="text-muted mb-3">Ajoutez des activités, pauses ou documents à cet événement</p>
-            <a href="{{ path('app_ressource_new') }}" class="btn btn-primary">
-                <i class="fas fa-plus-circle me-1"></i> Ajouter une ressource
+            <i class="fas fa-clipboard-list fa-3x text-muted mb-3"></i>
+            <h5 class="text-muted">Aucun programme pour cet événement</h5>
+            <p class="text-muted mb-3">Ajoutez un programme avec les activités, pause, documents et matériels</p>
+            <a href="{{ path('app_programme_new') }}" class="btn btn-primary">
+                <i class="fas fa-plus-circle me-1"></i> Créer un programme
             </a>
         </div>
     </div>
     {% endif %}
+    
+    <!-- Actions -->
+    <div class="card height-auto mt-4">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <a href="{{ path('app_evenement_edit', {'id': evenement.id}) }}" 
+                       class="btn btn-outline-warning px-4 py-2 me-2">
+                        <i class="fas fa-edit me-1"></i> Modifier
+                    </a>
+                    <form method="post" action="{{ path('app_evenement_delete', {'id': evenement.id}) }}" 
+                          style="display: inline-block;" 
+                          onsubmit="return confirm('Êtes-vous sûr de vouloir supprimer cet événement ?');">
+                        <input type="hidden" name="_token" value="{{ csrf_token('delete' ~ evenement.id) }}">
+                        <button type="submit" class="btn btn-outline-danger px-4 py-2">
+                            <i class="fas fa-trash-alt me-1"></i> Supprimer
+                        </button>
+                    </form>
+                </div>
+                <a href="{{ path('app_evenement_index') }}" 
+                   class="btn btn-outline-primary px-4 py-2">
+                    <i class="fas fa-arrow-left me-1"></i> Retour à la liste
+                </a>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}

@@ -124,9 +124,21 @@
 					</a>
 					<!-- Submenu -->
 					<ul class="nav collapse flex-column" id="collapsepage" data-bs-parent="#navbar-sidebar">
-						<li class="nav-item"> <a class="nav-link" href="#">All Events</a></li>
-						<li class="nav-item"> <a class="nav-link" href="#">Event Category</a></li>
-						<li class="nav-item"> <a class="nav-link" href="#">Event Detail</a></li>
+						<li class="nav-item">
+							<a class="nav-link" href="{{ path('app_evenement_index') }}">
+								All Events
+							</a>
+						</li>
+						<li class="nav-item">
+							<a class="nav-link" href="{{ path('app_evenement_new') }}">
+								Create Event
+							</a>
+						</li>
+						<li class="nav-item">
+							<a class="nav-link" href="{{ path('app_evenement_statistiques') }}">
+								Statistiques
+							</a>
+						</li>
 					</ul>
 				</li>
 

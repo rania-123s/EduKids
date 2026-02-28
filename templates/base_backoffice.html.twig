@@ -142,6 +142,21 @@
 					</ul>
 				</li>
 
+				<!-- menu item - PROGRAMME (lié aux événements) -->
+				<li class="nav-item">
+					<a class="nav-link" data-bs-toggle="collapse" href="#collapseprogramme" role="button" aria-expanded="false" aria-controls="collapseprogramme">
+						<i class="bi bi-clipboard2-check fa-fw me-2"></i>Programme
+					</a>
+					<ul class="nav collapse flex-column" id="collapseprogramme" data-bs-parent="#navbar-sidebar">
+						<li class="nav-item">
+							<a class="nav-link" href="{{ path('app_programme_index') }}">Liste des programmes</a>
+						</li>
+						<li class="nav-item">
+							<a class="nav-link" href="{{ path('app_programme_new') }}">Créer un programme</a>
+						</li>
+					</ul>
+				</li>
+
 				<!-- Menu item 3 -->
 				<li class="nav-item"> <a class="nav-link" href="#"><i class="fas fa-user-graduate fa-fw me-2"></i>Students</a></li>
 

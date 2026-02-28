@@ -5,7 +5,9 @@ namespace App\Controller\Evenement;
 use App\Entity\Evenement;
 use App\Form\Evenement\EvenementType;
 use App\Repository\Evenement\EvenementRepository;
+use App\Service\ImageRecommendationService;
 use Doctrine\ORM\EntityManagerInterface;
+use Psr\Log\LoggerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\File\Exception\FileException;
 use Symfony\Component\HttpFoundation\JsonResponse;
@@ -81,6 +83,50 @@ class EvenementController extends AbstractController
             'form' => $form,
         ]);
     }
+    #[Route('/recommend-image', name: 'app_evenement_recommend_image', methods: ['POST'])]
+    public function recommendImage(Request $request, ImageRecommendationService $imageRecommendationService, LoggerInterface $logger): JsonResponse
+    {
+        $data = json_decode($request->getContent(), true);
+        
+        $titre = $data['titre'] ?? '';
+        $description = $data['description'] ?? '';
+
+        if (empty($titre) && empty($description)) {
+            return new JsonResponse([
+                'success' => false,
+                'message' => 'Le titre ou la description est requis.'
+            ], 400);
+        }
+
+        try {
+            $result = $imageRecommendationService->recommendImage($titre, $description);
+
+            // S'assurer que keywords est toujours un tableau
+            $keywords = is_array($result['keywords']) ? $result['keywords'] : [];
+
+            $response = new JsonResponse([
+                'success' => true,
+                'imageUrl' => $result['imageUrl'] ?? null,
+                'keywords' => $keywords,
+                'searchUrl' => $result['searchUrl'] ?? null,
+                'message' => 'Image recommandée générée avec succès.'
+            ]);
+            $response->setEncodingOptions(JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            return $response;
+        } catch (\Exception $e) {
+            $logger->error('Erreur lors de la génération des recommandations: ' . $e->getMessage(), [
+                'exception' => $e,
+            ]);
+            
+            $response = new JsonResponse([
+                'success' => false,
+                'message' => 'Erreur lors de la génération des recommandations: ' . $e->getMessage()
+            ], 500);
+            $response->setEncodingOptions(JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            return $response;
+        }
+    }
+
 
     #[Route('/{id}', name: 'app_evenement_show', methods: ['GET'])]
     public function show(Evenement $evenement): Response
@@ -139,20 +185,7 @@ class EvenementController extends AbstractController
         ]);
     }
 
-    #[Route('/recommend-image', name: 'app_evenement_recommend_image', methods: ['POST'])]
-    public function recommendImage(Request $request): JsonResponse
-    {
-        $data = json_decode($request->getContent(), true) ?: [];
-        $titre = $data['titre'] ?? '';
-        $description = $data['description'] ?? '';
-
-        // TODO: brancher un service d'IA ou d'images (ex: API stock photos) pour renvoyer une imageUrl
-        // Pour l'instant on renvoie un échec pour que le formulaire ne plante pas.
-        return $this->json([
-            'success' => false,
-            'message' => 'Recommandation d\'image non configurée. Téléchargez une image manuellement.',
-        ]);
-    }
+   
 
     #[Route('/{id}', name: 'app_evenement_delete', methods: ['POST'])]
     public function delete(Request $request, Evenement $evenement, EntityManagerInterface $entityManager): Response

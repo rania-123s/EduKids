@@ -264,8 +264,33 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        fetch('{{ path('app_programme_api_evenement_heures', {'id': '__ID__'}) }}'.replace('__ID__', evenementId))
-            .then(response => response.json())
+        fetch('{{ path('app_programme_api_evenement_heures', {'id': '__ID__'}) }}'.replace('__ID__', evenementId), {
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            credentials: 'same-origin',
+        })
+            .then(async response => {
+                const contentType = response.headers.get('content-type') || '';
+                const text = await response.text();
+
+                if (!contentType.includes('application/json')) {
+                    if (text.includes('<html') || text.includes('<!DOCTYPE')) {
+                        throw new Error('Réponse HTML reçue. Vous devez être connecté en ADMIN.');
+                    }
+                    throw new Error('Réponse inattendue (non JSON). Code HTTP ' + response.status);
+                }
+
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    if (text.includes('<html') || text.includes('<!DOCTYPE')) {
+                        throw new Error('Réponse HTML reçue. Vous devez être connecté en ADMIN.');
+                    }
+                    throw e;
+                }
+            })
             .then(data => {
                 if (data.success) {
                     eventHeureDebut = data.heureDebut;
@@ -386,7 +411,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     throw new Error('Réponse inattendue (non JSON). Code HTTP ' + response.status);
                 }
 
-                const data = await response.json();
+                let data;
+                try {
+                    data = await response.json();
+                } catch (e) {
+                    const text = await response.text().catch(() => '');
+                    if (text.includes('<html') || text.includes('<!DOCTYPE')) {
+                        throw new Error('Réponse HTML reçue. Vous devez être connecté en ADMIN pour utiliser la génération IA.');
+                    }
+                    throw e;
+                }
                 if (!response.ok) {
                     throw new Error(data.message || ('Erreur HTTP ' + response.status));
                 }

@@ -97,6 +97,11 @@ class Evenement
     #[ORM\OneToMany(targetEntity: Reservation::class, mappedBy: 'evenement', cascade: ['persist', 'remove'])]
     private Collection $reservations;
 
+    public function __construct()
+    {
+        $this->reservations = new ArrayCollection();
+    }
+
     public function getId(): ?int
     {
         return $this->id;

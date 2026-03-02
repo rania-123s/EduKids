@@ -1,0 +1,17 @@
+# PHPStan - analyse statique
+# Lancer avec : composer phpstan  ou  vendor/bin/phpstan analyse
+# Documentation : https://phpstan.org/config-reference
+
+parameters:
+    level: 4
+    paths:
+        - src
+        - tests
+    excludePaths:
+        - tests/bootstrap.php
+    # Symfony : chemin vers le container (généré en dev)
+    symfony:
+        containerXmlPath: var/cache/dev/App_KernelDevDebugContainer.xml
+    # Ignorer les erreurs connues / tiers si besoin
+    # ignoreErrors:
+    #     - '#Message#'

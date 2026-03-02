@@ -21,10 +21,10 @@ final class LeconTutorController extends AbstractController
         private readonly HttpClientInterface $httpClient,
         #[Autowire('%kernel.project_dir%')]
         private readonly string $projectDir,
-        #[Autowire('%env(string:OPENAI_API_KEY)%')]
-        private readonly string $openAiApiKey,
-        #[Autowire('%env(string:OPENAI_MODEL)%')]
-        private readonly string $openAiModel,
+        #[Autowire('%env(default::OPENAI_API_KEY)%')]
+        private readonly ?string $openAiApiKey,
+        #[Autowire('%env(default::OPENAI_MODEL)%')]
+        private readonly ?string $openAiModel,
     ) {
     }
 
@@ -74,10 +74,11 @@ final class LeconTutorController extends AbstractController
     public function ocr(Lecon $lecon): JsonResponse
     {
         $mediaUrl = $lecon->getMediaUrl();
-        $pdfPath = $this->resolveLocalPdfPath($mediaUrl);
-        if ($pdfPath === null) {
+        try {
+            $resolvedPdf = $this->resolvePdfPathForOcr($mediaUrl);
+        } catch (\RuntimeException $exception) {
             return $this->json([
-                'error' => "Impossible de lancer l'OCR sur ce PDF.",
+                'error' => $exception->getMessage(),
             ], Response::HTTP_BAD_REQUEST);
         }
 
@@ -89,6 +90,9 @@ final class LeconTutorController extends AbstractController
             ], Response::HTTP_SERVICE_UNAVAILABLE);
         }
 
+        $pdfPath = (string) ($resolvedPdf['path'] ?? '');
+        $isTemporaryPdf = (bool) ($resolvedPdf['temporary'] ?? false);
+
         $sidecarPath = $this->getOcrSidecarPath((string) $mediaUrl);
         $sidecarDir = dirname($sidecarPath);
         if (!is_dir($sidecarDir) && !@mkdir($sidecarDir, 0775, true) && !is_dir($sidecarDir)) {
@@ -97,29 +101,35 @@ final class LeconTutorController extends AbstractController
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
 
-        $result = $this->runOcrPipeline($pdfPath, $sidecarPath);
-        if (!$result['ok']) {
-            return $this->json([
-                'error' => (string) $result['message'],
-            ], Response::HTTP_BAD_REQUEST);
-        }
+        try {
+            $result = $this->runOcrPipeline($pdfPath, $sidecarPath);
+            if (!$result['ok']) {
+                return $this->json([
+                    'error' => (string) $result['message'],
+                ], Response::HTTP_BAD_REQUEST);
+            }
 
-        $ocrText = $this->sanitizeUtf8((string) (@file_get_contents($sidecarPath) ?: ''));
-        if ($ocrText === '') {
-            return $this->json([
-                'error' => "OCR termine, mais aucun texte n'a ete extrait.",
-            ], Response::HTTP_BAD_REQUEST);
-        }
+            $ocrText = $this->sanitizeUtf8((string) (@file_get_contents($sidecarPath) ?: ''));
+            if ($ocrText === '') {
+                return $this->json([
+                    'error' => "OCR termine, mais aucun texte n'a ete extrait.",
+                ], Response::HTTP_BAD_REQUEST);
+            }
 
-        if (!$this->isUsefulExtractedText($ocrText) || $this->isMostlyGibberish($ocrText)) {
-            return $this->json([
-                'error' => "OCR termine, mais le texte obtenu reste illisible.",
-            ], Response::HTTP_BAD_REQUEST);
-        }
+            if (!$this->isUsefulExtractedText($ocrText) || $this->isMostlyGibberish($ocrText)) {
+                return $this->json([
+                    'error' => "OCR termine, mais le texte obtenu reste illisible.",
+                ], Response::HTTP_BAD_REQUEST);
+            }
 
-        return $this->json([
-            'answer' => "OCR termine avec succes. Vous pouvez maintenant redemander au tuteur de lire/resumer le PDF.",
-        ]);
+            return $this->json([
+                'answer' => "OCR termine avec succes. Vous pouvez maintenant redemander au tuteur de lire/resumer le PDF.",
+            ]);
+        } finally {
+            if ($isTemporaryPdf) {
+                @unlink($pdfPath);
+            }
+        }
     }
 
     private function buildLessonContext(Lecon $lecon): string
@@ -802,22 +812,67 @@ PROMPT;
         return trim((string) ($matches[1] ?? ''));
     }
 
-    private function resolveLocalPdfPath(?string $mediaUrl): ?string
+    /**
+     * @return array{path: string, temporary: bool}
+     */
+    private function resolvePdfPathForOcr(?string $mediaUrl): array
     {
-        if (!$mediaUrl || !str_ends_with(strtolower($mediaUrl), '.pdf')) {
-            return null;
+        $mediaUrl = trim((string) $mediaUrl);
+        if ($mediaUrl === '') {
+            throw new \RuntimeException("Impossible de lancer l'OCR: aucun PDF n'est associe a cette lecon.");
+        }
+
+        $pathPart = parse_url($mediaUrl, PHP_URL_PATH);
+        $pathPart = is_string($pathPart) && $pathPart !== '' ? $pathPart : $mediaUrl;
+        if (!str_ends_with(strtolower($pathPart), '.pdf')) {
+            throw new \RuntimeException("Impossible de lancer l'OCR: cette lecon ne pointe pas vers un fichier PDF.");
         }
 
         if (preg_match('/^https?:\/\//i', $mediaUrl)) {
-            return null;
+            try {
+                $response = $this->httpClient->request('GET', $mediaUrl, [
+                    'max_redirects' => 3,
+                    'timeout' => 12,
+                ]);
+            } catch (\Throwable) {
+                throw new \RuntimeException("Impossible de lancer l'OCR: le PDF distant est inaccessible.");
+            }
+
+            if ($response->getStatusCode() >= 400) {
+                throw new \RuntimeException("Impossible de lancer l'OCR: le PDF distant a retourne une erreur HTTP.");
+            }
+
+            $content = $response->getContent(false);
+            if ($content === '') {
+                throw new \RuntimeException("Impossible de lancer l'OCR: le PDF distant est vide ou non lisible.");
+            }
+
+            $tmpPdfPath = tempnam(sys_get_temp_dir(), 'ocr_pdf_');
+            if ($tmpPdfPath === false) {
+                throw new \RuntimeException("Impossible de lancer l'OCR: creation du fichier temporaire impossible.");
+            }
+
+            if (@file_put_contents($tmpPdfPath, $content) === false) {
+                @unlink($tmpPdfPath);
+                throw new \RuntimeException("Impossible de lancer l'OCR: echec de preparation du PDF temporaire.");
+            }
+
+            return [
+                'path' => $tmpPdfPath,
+                'temporary' => true,
+            ];
         }
 
-        $pdfPath = $this->projectDir.'/public'.$mediaUrl;
+        $normalizedPath = str_starts_with($pathPart, '/') ? $pathPart : '/'.$pathPart;
+        $pdfPath = $this->projectDir.'/public'.$normalizedPath;
         if (!is_readable($pdfPath)) {
-            return null;
+            throw new \RuntimeException("Impossible de lancer l'OCR: le fichier PDF local est introuvable.");
         }
 
-        return $pdfPath;
+        return [
+            'path' => $pdfPath,
+            'temporary' => false,
+        ];
     }
 
     private function getOcrSidecarPath(string $mediaUrl): string

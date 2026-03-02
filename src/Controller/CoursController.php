@@ -342,15 +342,31 @@ final class CoursController extends AbstractController
     {
         if ($this->isCsrfTokenValid('delete' . $cours->getId(), $request->request->get('_token'))) {
             try {
+                $connection = $em->getConnection();
+                $schemaManager = $connection->createSchemaManager();
+                $tableNames = array_map('strtolower', $schemaManager->listTableNames());
+                $hasLegacyQuizTable = in_array('quiz', $tableNames, true);
+                $hasLegacyQuestionTable = in_array('question', $tableNames, true);
+
+                // Legacy cleanup for old quiz schema if those tables still exist.
+                // Avoid touching $cours->getQuizzes() because some databases no longer have table `quiz`.
+                if ($hasLegacyQuizTable && $hasLegacyQuestionTable) {
+                    $connection->executeStatement(
+                        'DELETE FROM question WHERE quiz_id IN (SELECT id FROM quiz WHERE cours_id = :coursId)',
+                        ['coursId' => $cours->getId()]
+                    );
+                    $connection->executeStatement(
+                        'DELETE FROM quiz WHERE cours_id = :coursId',
+                        ['coursId' => $cours->getId()]
+                    );
+                }
+
                 foreach ($cours->getLecons()->toArray() as $lecon) {
                     $em->remove($lecon);
                 }
 
-                foreach ($cours->getQuizzes()->toArray() as $quiz) {
-                    foreach ($quiz->getQuestions()->toArray() as $question) {
-                        $em->remove($question);
-                    }
-                    $em->remove($quiz);
+                foreach ($cours->getProgress()->toArray() as $progress) {
+                    $em->remove($progress);
                 }
 
                 $em->remove($cours);
